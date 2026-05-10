@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info/
+build/
+dist/
+wheels/
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# uv / pip
+.uv-cache/
+
+# Testing & coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Project: local cohort outputs / smoke artifacts
+cohorts/
+/tmp_cohorts/
+
+# Secrets / env
+.env
+.env.*
+!.env.example

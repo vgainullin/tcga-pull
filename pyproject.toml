@@ -1,0 +1,113 @@
+[project]
+name = "tcga-pull"
+version = "0.1.0"
+description = "Query the NCI GDC and produce per-case structured TCGA cohorts."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "vgainullin", email = "gainullin@gmail.com" },
+]
+requires-python = ">=3.10"
+keywords = ["tcga", "gdc", "cancer", "genomics", "cohort", "bioinformatics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+dependencies = [
+    "requests>=2.32",
+    "pandas>=2.2",
+    "pyarrow>=18.0",
+    "pyyaml>=6.0",
+    "typer>=0.15",
+    "rich>=13.9",
+    "questionary>=2.0",
+]
+
+[project.optional-dependencies]
+agent = [
+    "openai>=1.50",
+]
+
+[project.scripts]
+tcga-pull = "tcga_pull.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pandas-stubs>=2.2",
+    "types-requests>=2.32",
+    "types-pyyaml>=6.0",
+]
+
+# --------------------------------------------------------------------- ruff ---
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+]
+ignore = [
+    "E501",  # line length — formatter handles it
+    "B008",  # default arg is Path(...) / similar — fine for typer defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # `assert False` is fine in tests
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# --------------------------------------------------------------------- mypy ---
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests"]
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = false  # gradual typing; tighten later
+check_untyped_defs = true
+no_implicit_optional = true
+show_error_codes = true
+ignore_missing_imports = false
+
+# Modules without type stubs available
+[[tool.mypy.overrides]]
+module = ["questionary.*", "typer.*"]
+ignore_missing_imports = true
+
+# ------------------------------------------------------------------- pytest ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "network: requires outbound network (GDC API)",
+    "download: triggers a real download via gdc-client or bulk API",
+]
