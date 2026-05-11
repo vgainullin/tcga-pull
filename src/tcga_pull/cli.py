@@ -220,6 +220,71 @@ def samples(
         )
 
 
+@app.command("bench")
+def bench_cmd(
+    cohort_dir: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        help="A cohort dir with raw MAFs already pulled.",
+    ),
+    save: Path | None = typer.Option(None, "--save", help="Write bench.json to this path."),
+) -> None:
+    """Benchmark pandas vs polars on the variants + samples pipelines.
+    Reports wall time, peak RSS, and a cell-by-cell diff of the two outputs."""
+    from rich.table import Table
+
+    from .bench import run_bench, write_json
+
+    result = run_bench(cohort_dir)
+
+    timing = Table(title="bench results")
+    timing.add_column("engine")
+    timing.add_column("stage")
+    timing.add_column("wall (s)", justify="right")
+    timing.add_column("peak RSS (MB)", justify="right")
+    timing.add_column("rows", justify="right")
+    timing.add_column("cols", justify="right")
+    timing.add_column("parquet (MB)", justify="right")
+    for s in result.stages:
+        timing.add_row(
+            s.engine,
+            s.stage,
+            f"{s.wall_seconds:.2f}",
+            f"{s.peak_rss_mb_after:,.0f}",
+            f"{s.rows:,}",
+            str(s.cols),
+            f"{s.parquet_bytes / (1 << 20):.1f}",
+        )
+    console.print(timing)
+
+    # Speedups
+    by_key: dict[tuple[str, str], float] = {
+        (s.engine, s.stage): s.wall_seconds for s in result.stages
+    }
+    for stage in ("variants", "samples"):
+        if ("pandas", stage) in by_key and ("polars", stage) in by_key:
+            t_pd = by_key[("pandas", stage)]
+            t_pl = by_key[("polars", stage)]
+            console.print(
+                f"  [bold]{stage}[/bold]: polars is [green]{t_pd / t_pl:.1f}x[/green] faster"
+            )
+
+    # Diff summary
+    for stage in ("variants", "samples"):
+        d = result.diffs.get(stage, {})
+        if d:
+            console.print(f"\n[red]{stage}: {len(d)} columns differ[/red]")
+            for col, n in sorted(d.items(), key=lambda x: -x[1])[:10]:
+                console.print(f"  {col}: {n:,}")
+        else:
+            console.print(f"  [bold]{stage}[/bold] diff: [green]identical[/green]")
+
+    if save:
+        write_json(result, save)
+        console.print(f"  wrote {save}")
+
+
 @app.command("validate-mafs")
 def validate_mafs_cmd(
     path: Path = typer.Argument(

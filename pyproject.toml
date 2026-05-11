@@ -37,6 +37,10 @@ dependencies = [
 agent = [
     "openai>=1.50",
 ]
+engines = [
+    "polars>=1.20",
+    "duckdb>=1.1",
+]
 
 [project.scripts]
 tcga-pull = "tcga_pull.cli:app"
