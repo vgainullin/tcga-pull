@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-05-11
+
+First tagged release. Cohort artefacts and the `load_cohort` Python API are
+covered by semver from here.
+
 ### Added
 - Initial release.
 - GDC API client with filter helpers (`f_in`, `f_and`, `f_or`, `open_access`)
