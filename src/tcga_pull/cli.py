@@ -259,6 +259,66 @@ def samples(
         )
 
 
+@app.command("frequency")
+def frequency_cmd(
+    cohort_dir: Path = typer.Argument(
+        ..., exists=True, file_okay=False, help="A cohort dir with variants + samples parquets."
+    ),
+    top_per_lineage: int = typer.Option(
+        10, "--top", help="Print top N genes per lineage to stdout."
+    ),
+) -> None:
+    """Build gene_frequency.parquet + variant_frequency.parquet with raw rate,
+    vs-other-lineages, and vs-gnomAD comparators side by side."""
+    import polars as pl
+
+    from .frequency import write_gene_frequency, write_variant_frequency
+
+    gp = write_gene_frequency(cohort_dir)
+    vp = write_variant_frequency(cohort_dir)
+    gf = pl.read_parquet(gp)
+    vf = pl.read_parquet(vp)
+    console.print(
+        f"[green]wrote[/green] {gp}  ({len(gf):,} (gene, lineage) rows)\n"
+        f"[green]wrote[/green] {vp}  ({len(vf):,} (variant, lineage) rows)"
+    )
+
+    # Top genes per lineage by raw frequency, restricted to lineages with ≥30 patients.
+    if "lineage" not in gf.columns:
+        return
+    big_lineages = (
+        gf.group_by("lineage")
+        .agg(pl.col("n_total_patients").max().alias("n"))
+        .filter(pl.col("n") >= 30)
+        .sort("n", descending=True)["lineage"]
+        .to_list()
+    )
+    for lin in big_lineages[:8]:
+        top = (
+            gf.filter(pl.col("lineage") == lin)
+            .sort("freq", descending=True)
+            .head(top_per_lineage)
+            .select(["hugo_symbol", "n_mutated_patients", "n_total_patients", "freq"])
+        )
+        if top.is_empty():
+            continue
+        from rich.table import Table
+
+        t = Table(title=f"{lin} — top {top_per_lineage} mutated genes (rare+coding)")
+        t.add_column("gene")
+        t.add_column("mutated", justify="right")
+        t.add_column("of", justify="right")
+        t.add_column("freq", justify="right")
+        for row in top.to_dicts():
+            t.add_row(
+                row["hugo_symbol"],
+                str(row["n_mutated_patients"]),
+                str(row["n_total_patients"]),
+                f"{row['freq']:.1%}",
+            )
+        console.print(t)
+
+
 @app.command("bench")
 def bench_cmd(
     cohort_dir: Path = typer.Argument(

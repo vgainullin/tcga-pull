@@ -94,50 +94,79 @@ def _diff_parquets(pd_path: Path, pl_path: Path, sort_cols: list[str]) -> dict[s
 
 
 def run_bench(cohort_dir: Path) -> BenchResult:
-    """Run variants + samples through pandas then polars; diff outputs."""
+    """Run variants + samples through pandas then polars; diff outputs.
+
+    Bench artefacts go to `bench/` inside the cohort dir, so the canonical
+    `variants.parquet` / `samples.parquet` are restored from their pre-bench
+    state on success. Downstream commands (frequency, etc.) keep working.
+    """
     cohort_dir = Path(cohort_dir)
     stages: list[StageResult] = []
+    bench_dir = cohort_dir / "bench"
+    bench_dir.mkdir(exist_ok=True)
 
-    # ---- pandas: variants
-    out_pd_variants, dt = _time_call(lambda: variants_pandas.write_variants(cohort_dir))
-    pd_v_kept = out_pd_variants.with_suffix(".pandas.parquet")
-    out_pd_variants.rename(pd_v_kept)
-    rows, cols, bytes_ = _summary(pd_v_kept)
-    stages.append(StageResult("pandas", "variants", dt, _peak_rss_mb(), rows, cols, bytes_))
+    # Snapshot anything that already exists so we can put it back
+    variants_canonical = cohort_dir / "variants.parquet"
+    samples_canonical = cohort_dir / "samples.parquet"
+    variants_was = variants_canonical.read_bytes() if variants_canonical.exists() else None
+    samples_was = samples_canonical.read_bytes() if samples_canonical.exists() else None
 
-    # ---- polars: variants
-    out_pl_variants, dt = _time_call(lambda: variants_polars.write_variants(cohort_dir))
-    pl_v_kept = out_pl_variants.with_suffix(".polars.parquet")
-    out_pl_variants.rename(pl_v_kept)
-    rows, cols, bytes_ = _summary(pl_v_kept)
-    stages.append(StageResult("polars", "variants", dt, _peak_rss_mb(), rows, cols, bytes_))
+    try:
+        # ---- variants: pandas
+        _, dt_pd_v = _time_call(lambda: variants_pandas.write_variants(cohort_dir))
+        pd_v_kept = bench_dir / "variants.pandas.parquet"
+        variants_canonical.replace(pd_v_kept)
+        rows, cols, bytes_ = _summary(pd_v_kept)
+        stages.append(
+            StageResult("pandas", "variants", dt_pd_v, _peak_rss_mb(), rows, cols, bytes_)
+        )
 
-    variants_diff = _diff_parquets(
-        pd_v_kept, pl_v_kept, sort_cols=["submitter_id", "tumor_barcode", "chrom", "pos"]
-    )
+        # ---- variants: polars
+        _, dt_pl_v = _time_call(lambda: variants_polars.write_variants(cohort_dir))
+        pl_v_kept = bench_dir / "variants.polars.parquet"
+        variants_canonical.replace(pl_v_kept)
+        rows, cols, bytes_ = _summary(pl_v_kept)
+        stages.append(
+            StageResult("polars", "variants", dt_pl_v, _peak_rss_mb(), rows, cols, bytes_)
+        )
 
-    # samples needs variants.parquet; restore from the pandas copy and rerun each
-    pd_v_kept.replace(cohort_dir / "variants.parquet")
+        variants_diff = _diff_parquets(
+            pd_v_kept, pl_v_kept, sort_cols=["submitter_id", "tumor_barcode", "chrom", "pos"]
+        )
 
-    out_pd_samples, dt = _time_call(lambda: samples_pandas.write_samples(cohort_dir))
-    pd_s_kept = out_pd_samples.with_suffix(".pandas.parquet")
-    out_pd_samples.rename(pd_s_kept)
-    rows, cols, bytes_ = _summary(pd_s_kept)
-    stages.append(StageResult("pandas", "samples", dt, _peak_rss_mb(), rows, cols, bytes_))
+        # ---- samples: needs variants.parquet; use the pandas variants for both passes
+        # for a fair comparison (samples math is the only thing varying here).
+        pd_v_kept.replace(variants_canonical)
 
-    # swap in polars variants for the polars samples pass
-    (cohort_dir / "variants.parquet").replace(pd_v_kept)  # rename back to .pandas.parquet
-    pl_v_kept.replace(cohort_dir / "variants.parquet")
+        _, dt_pd_s = _time_call(lambda: samples_pandas.write_samples(cohort_dir))
+        pd_s_kept = bench_dir / "samples.pandas.parquet"
+        samples_canonical.replace(pd_s_kept)
+        rows, cols, bytes_ = _summary(pd_s_kept)
+        stages.append(StageResult("pandas", "samples", dt_pd_s, _peak_rss_mb(), rows, cols, bytes_))
 
-    out_pl_samples, dt = _time_call(lambda: samples_polars.write_samples(cohort_dir))
-    pl_s_kept = out_pl_samples.with_suffix(".polars.parquet")
-    out_pl_samples.rename(pl_s_kept)
-    rows, cols, bytes_ = _summary(pl_s_kept)
-    stages.append(StageResult("polars", "samples", dt, _peak_rss_mb(), rows, cols, bytes_))
+        _, dt_pl_s = _time_call(lambda: samples_polars.write_samples(cohort_dir))
+        pl_s_kept = bench_dir / "samples.polars.parquet"
+        samples_canonical.replace(pl_s_kept)
+        rows, cols, bytes_ = _summary(pl_s_kept)
+        stages.append(StageResult("polars", "samples", dt_pl_s, _peak_rss_mb(), rows, cols, bytes_))
 
-    samples_diff = _diff_parquets(pd_s_kept, pl_s_kept, sort_cols=["submitter_id"])
+        samples_diff = _diff_parquets(pd_s_kept, pl_s_kept, sort_cols=["submitter_id"])
 
-    # leave variants.parquet pointing at the polars version; user can pick
+        # Move the canonical artefacts back to bench-side names so we can restore
+        # the snapshot.
+        variants_canonical.replace(bench_dir / "_variants.last.parquet")
+        # samples_canonical was just moved to pl_s_kept above; nothing to clear.
+    finally:
+        # Always restore the canonical filenames
+        if variants_was is not None:
+            variants_canonical.write_bytes(variants_was)
+        if samples_was is not None:
+            samples_canonical.write_bytes(samples_was)
+        # Clean up the throwaway last-variants copy
+        last = bench_dir / "_variants.last.parquet"
+        if last.exists():
+            last.unlink()
+
     return BenchResult(
         cohort_dir=str(cohort_dir),
         stages=stages,

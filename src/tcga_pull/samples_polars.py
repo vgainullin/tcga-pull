@@ -80,9 +80,14 @@ def build_samples_from_frames(
     clin = clinical.select(keep_in).rename({k: CLINICAL_COLUMN_MAP[k] for k in keep_in})
 
     if "project_id" in clin.columns:
+        from .tissue import derive_tissue
+
         clin = clin.with_columns(
             program=pl.col("project_id").map_elements(_project_to_program, return_dtype=pl.Utf8),
-            lineage=pl.col("project_id"),
+            lineage=pl.struct(["project_id", "primary_site"]).map_elements(
+                lambda r: derive_tissue(r.get("project_id"), r.get("primary_site")),
+                return_dtype=pl.Utf8,
+            ),
         )
     if "age_at_diagnosis_days" in clin.columns:
         clin = clin.with_columns(

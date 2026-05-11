@@ -168,8 +168,14 @@ def build_samples_from_frames(
 
     # Derived columns
     if "project_id" in clin.columns:
+        from .tissue import derive_tissue
+
         clin["program"] = clin["project_id"].map(_project_to_program)
-        clin["lineage"] = clin["project_id"]  # OncoTree-less fallback
+        # lineage = curated tissue (breast/lung/.../pancreas) with primary_site fallback
+        clin["lineage"] = [
+            derive_tissue(p, s)
+            for p, s in zip(clin["project_id"], clin.get("primary_site", []), strict=False)
+        ]
 
     if "age_at_diagnosis_days" in clin.columns:
         days = pd.to_numeric(clin["age_at_diagnosis_days"], errors="coerce")

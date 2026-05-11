@@ -143,7 +143,7 @@ def test_build_samples_end_to_end():
 
     c1 = s[s["case_id"] == "c1"].iloc[0]
     assert c1["program"] == "TCGA"
-    assert c1["lineage"] == "TCGA-BRCA"  # defaults to project_id (no OncoTree yet)
+    assert c1["lineage"] == "breast"  # TCGA-BRCA → breast via tissue.derive_tissue
     assert c1["age_at_diagnosis_years"] == 50.00
     assert c1["primary_tumor_barcode"] == "T1"
     assert c1["primary_normal_barcode"] == "N1"
