@@ -38,6 +38,23 @@ KNOWN_RECIPES: tuple[str, ...] = ("variants", "samples", "frequency")
 
 
 @dataclass
+class LimitSpec:
+    """Optional per-cohort sampling limits applied at file-list stage,
+    before any bytes are downloaded.
+
+    `per_project`: keep at most N unique cases per GDC project_id, chosen
+    deterministically by submitter_id sort. Useful for prototyping or for
+    building balanced training subsets across heterogeneous lineages.
+    """
+
+    per_project: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.per_project is not None and self.per_project <= 0:
+            raise ValueError(f"limit.per_project must be > 0, got {self.per_project!r}")
+
+
+@dataclass
 class CohortSpec:
     name: str
     out_dir: Path
@@ -45,6 +62,7 @@ class CohortSpec:
     gdc_filter: dict | None = None
     n_processes: int = 4
     recipes: list[str] = field(default_factory=list)
+    limit: LimitSpec = field(default_factory=LimitSpec)
 
     def __post_init__(self) -> None:
         bad = [r for r in self.recipes if r not in KNOWN_RECIPES]
@@ -78,6 +96,8 @@ def load_yaml(path: Path, *, out_dir_override: Path | None = None) -> CohortSpec
         out_dir = out_dir_override.expanduser().resolve()
     else:
         out_dir = Path(data.get("out_dir", "./cohorts")).expanduser().resolve()
+    limit_block = data.get("limit") or {}
+    limit = LimitSpec(per_project=limit_block.get("per_project"))
     return CohortSpec(
         name=data["name"],
         out_dir=out_dir,
@@ -85,6 +105,7 @@ def load_yaml(path: Path, *, out_dir_override: Path | None = None) -> CohortSpec
         gdc_filter=data.get("gdc_filter"),
         n_processes=int((data.get("download") or {}).get("n_processes", 4)),
         recipes=list(data.get("recipes") or []),
+        limit=limit,
     )
 
 

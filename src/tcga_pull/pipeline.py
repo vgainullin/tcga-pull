@@ -9,7 +9,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from .config import CohortSpec
+from .config import CohortSpec, LimitSpec
 from .download import (
     bulk_download_via_api,
     primary_case,
@@ -40,10 +40,50 @@ class Preview:
         return out
 
 
+def apply_limit(file_hits: list[dict], limit: LimitSpec) -> list[dict]:
+    """Trim file_hits according to a LimitSpec. Deterministic: cases are
+    sorted by submitter_id within each project, and the first N are kept.
+
+    Files mapped to a single case participate in the limit. Multi-case files
+    (rare; project-level outputs) pass through unchanged — they belong to
+    every case in their group and we don't want to silently drop them.
+    """
+    n = limit.per_project
+    if n is None:
+        return file_hits
+
+    # Build {project_id: {submitter_id: case_id}} from single-case files
+    by_project: dict[str, dict[str, str]] = {}
+    for h in file_hits:
+        cases = h.get("cases") or []
+        if len(cases) != 1:
+            continue
+        c = cases[0]
+        project_id = (c.get("project") or {}).get("project_id")
+        case_id = c.get("case_id")
+        submitter = c.get("submitter_id") or case_id
+        if project_id and case_id and submitter:
+            by_project.setdefault(project_id, {})[submitter] = case_id
+
+    kept_case_ids: set[str] = set()
+    for submitters in by_project.values():
+        for submitter in sorted(submitters)[:n]:
+            kept_case_ids.add(submitters[submitter])
+
+    def keep(h: dict) -> bool:
+        cases = h.get("cases") or []
+        if len(cases) != 1:
+            return True  # multi-case → pass through
+        return cases[0].get("case_id") in kept_case_ids
+
+    return [h for h in file_hits if keep(h)]
+
+
 def fetch_preview(spec: CohortSpec, client: GDCClient | None = None) -> Preview:
     client = client or GDCClient()
     flt = spec.resolve_filter()
     file_hits = client.fetch_files(flt)
+    file_hits = apply_limit(file_hits, spec.limit)
     n_files = len(file_hits)
     case_ids = {
         c.get("case_id") for h in file_hits for c in (h.get("cases") or []) if c.get("case_id")

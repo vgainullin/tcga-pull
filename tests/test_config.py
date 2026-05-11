@@ -120,3 +120,30 @@ def test_cohort_spec_rejects_unknown_recipe():
 def test_cohort_spec_recipes_default_empty():
     spec = CohortSpec(name="x", out_dir=Path("/tmp"))
     assert spec.recipes == []
+
+
+# ----------------------------------------------------------- LimitSpec
+
+
+def test_limit_per_project_default_none():
+    from tcga_pull.config import LimitSpec
+
+    spec = CohortSpec(name="x", out_dir=Path("/tmp"))
+    assert spec.limit.per_project is None
+    assert LimitSpec().per_project is None
+
+
+def test_limit_per_project_rejects_non_positive():
+    from tcga_pull.config import LimitSpec
+
+    with pytest.raises(ValueError, match="must be > 0"):
+        LimitSpec(per_project=0)
+    with pytest.raises(ValueError, match="must be > 0"):
+        LimitSpec(per_project=-5)
+
+
+def test_yaml_limit_per_project(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text("name: x\nfilters: {project: TCGA-CHOL}\nlimit:\n  per_project: 5\n")
+    spec = load_yaml(yaml_path)
+    assert spec.limit.per_project == 5

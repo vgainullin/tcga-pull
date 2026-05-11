@@ -96,6 +96,11 @@ def pull(
     sample_type: list[str] | None = typer.Option(None, "--sample-type"),
     n_processes: int = typer.Option(4, "--n-processes", "-n"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip download confirmation."),
+    limit_per_project: int | None = typer.Option(
+        None,
+        "--limit-per-project",
+        help="Cap at N cases per GDC project (deterministic by submitter_id sort).",
+    ),
 ) -> None:
     """Build a cohort from a YAML config or flags. Prompts before downloading."""
     spec = _spec_from_args(
@@ -112,6 +117,9 @@ def pull(
         sample_type=sample_type,
         n_processes=n_processes,
     )
+    # CLI flag overrides any YAML limit
+    if limit_per_project is not None:
+        spec.limit.per_project = limit_per_project
     pipeline.run(spec, yes=yes, console=console)
 
 

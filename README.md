@@ -86,6 +86,9 @@ tcga-pull pull --project TCGA-BRCA --project TCGA-LUAD \
 tcga-pull pull --projects-file projects.txt \
                --data-category "Simple Nucleotide Variation" --data-format MAF
 
+# Cap per project for quick prototypes (also available in YAML as `limit.per_project`)
+tcga-pull pull examples/pancancer_snv.yaml --limit-per-project 20 --yes
+
 # Or from a YAML config
 tcga-pull pull cohort.yaml
 
