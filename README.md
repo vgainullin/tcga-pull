@@ -81,6 +81,23 @@ tcga-pull agent
 tcga-pull agent -q "BRCA primary tumor RNA-seq STAR counts"
 ```
 
+### Python API
+
+For downstream projects that consume the parquets:
+
+```python
+from tcga_pull import load_cohort
+
+cohort = load_cohort("/path/to/cohort")
+cohort.variants            # polars DataFrame — one row per (variant x tumor aliquot)
+cohort.samples             # one row per case, with curated `lineage` (tissue)
+cohort.gene_frequency      # one row per (gene, lineage); None if frequency wasn't run
+cohort.provenance          # dict from cohort.json (resolved filter, counts, timestamps)
+cohort.summary()           # cheap shape readout
+```
+
+Column schemas, semantics, and stability promises live in [SCHEMAS.md](SCHEMAS.md).
+
 ### YAML cohort spec
 
 ```yaml
