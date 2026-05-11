@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "requests>=2.32",
     "pandas>=2.2",
+    "polars>=1.20",
     "pyarrow>=18.0",
     "pyyaml>=6.0",
     "typer>=0.15",
@@ -37,8 +38,7 @@ dependencies = [
 agent = [
     "openai>=1.50",
 ]
-engines = [
-    "polars>=1.20",
+queries = [
     "duckdb>=1.1",
 ]
 

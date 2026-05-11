@@ -1428,6 +1428,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "polars" },
     { name = "pyarrow" },
     { name = "pyyaml" },
     { name = "questionary" },
@@ -1440,9 +1441,8 @@ dependencies = [
 agent = [
     { name = "openai" },
 ]
-engines = [
+queries = [
     { name = "duckdb" },
-    { name = "polars" },
 ]
 
 [package.dev-dependencies]
@@ -1458,10 +1458,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'engines'", specifier = ">=1.1" },
+    { name = "duckdb", marker = "extra == 'queries'", specifier = ">=1.1" },
     { name = "openai", marker = "extra == 'agent'", specifier = ">=1.50" },
     { name = "pandas", specifier = ">=2.2" },
-    { name = "polars", marker = "extra == 'engines'", specifier = ">=1.20" },
+    { name = "polars", specifier = ">=1.20" },
     { name = "pyarrow", specifier = ">=18.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "questionary", specifier = ">=2.0" },
@@ -1469,7 +1469,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.9" },
     { name = "typer", specifier = ">=0.15" },
 ]
-provides-extras = ["agent", "engines"]
+provides-extras = ["agent", "queries"]
 
 [package.metadata.requires-dev]
 dev = [
