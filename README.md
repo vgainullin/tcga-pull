@@ -20,9 +20,11 @@ Given a filter over the GDC catalogue, `tcga-pull`:
 5. Writes `manifest.parquet` (one row per file with `local_path` + provenance).
 
 A `variants` post-processing recipe walks the cohort's MAFs and produces a
-unified `variants.parquet` with `project_id, case_id, primary_diagnosis,
-chrom, pos, ref, alt, variant_class, consequence, vaf, …` — ready for
-analysis with pandas / DuckDB / Polars without any further wrangling.
+unified `variants.parquet` (~37 columns) with locus, gene/transcript,
+consequence, support, caller agreement, gnomAD/COSMIC/SIFT/PolyPhen
+annotations, and convenience flags (`is_coding`, `is_high_impact`,
+`is_rare`, `primary_aliquot`). Ready for analysis with pandas / DuckDB /
+Polars without any further wrangling.
 
 ## Install
 
