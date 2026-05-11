@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   barcode position 13-14), and `primary_aliquot` — True for one tumor
   barcode per patient, picked by highest mean t_depth; lets you filter to
   patient-level analysis without double-counting multi-aliquot cases.
+- `tcga-pull samples` recipe: builds `samples.parquet` (one row per case)
+  from `clinical.parquet` + `variants.parquet`. Carries identifiers,
+  raw GDC labels (primary_site, disease_type, primary_diagnosis),
+  `lineage` (defaults to project_id; OncoTree integration deferred),
+  demographics, pair structure (n_tumor_aliquots, primary tumor/normal
+  barcode, normal_source), and patient-level mutation burden
+  (n_variants_total/coding/high_impact, computed on the primary aliquot
+  only to avoid double-counting).
 - Conversational agent over OpenRouter (`tcga-pull agent`) with five tools
   (`list_projects`, `search_fields`, `count_files`, `preview_clinical`,
   `download`) and a hard `questionary.confirm` gate before any download.

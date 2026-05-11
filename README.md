@@ -67,6 +67,9 @@ tcga-pull pull cohort.yaml
 # Post-process: aggregate MAFs into a single variants table
 tcga-pull variants /path/to/cohort_dir
 
+# And then build a per-case table (demographics + lineage + burden)
+tcga-pull samples /path/to/cohort_dir
+
 # Conversational mode (needs OPENROUTER_API_KEY)
 tcga-pull agent
 tcga-pull agent -q "BRCA primary tumor RNA-seq STAR counts"
@@ -96,6 +99,7 @@ cohorts/<name>/
   manifest.tsv          # the input sent to gdc-client (provenance)
   cohort.json           # resolved filter + counts + timestamps
   variants.parquet      # (after `tcga-pull variants`) one row per somatic mutation
+  samples.parquet       # (after `tcga-pull samples`) one row per case, with burden
   data/
     <TCGA-XX-XXXX>/
       <data_category>/

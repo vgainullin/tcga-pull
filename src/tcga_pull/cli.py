@@ -166,6 +166,35 @@ def variants(
         console.print(df["variant_class"].value_counts().head(8).to_string())
 
 
+@app.command()
+def samples(
+    cohort_dir: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        help="A cohort dir with clinical.parquet + variants.parquet.",
+    ),
+) -> None:
+    """Build per-case samples.parquet (demographics + lineage + burden)."""
+    from .samples import write_samples
+
+    out = write_samples(cohort_dir)
+    import pandas as pd
+
+    df = pd.read_parquet(out)
+    console.print(f"[green]wrote[/green] {out}  ({len(df):,} cases x {df.shape[1]} cols)")
+    if "lineage" in df.columns:
+        console.print("\n[dim]lineage (top 8):[/dim]")
+        console.print(df["lineage"].value_counts().head(8).to_string())
+    if "n_variants_total" in df.columns:
+        bs = df["n_variants_total"].describe()
+        console.print(
+            f"\n[dim]burden (n_variants_total, primary aliquot only):[/dim] "
+            f"median={int(bs['50%'])}  IQR={int(bs['25%'])}-{int(bs['75%'])}  "
+            f"max={int(bs['max'])}"
+        )
+
+
 def _default_name(project: list[str], data_type: list[str] | None) -> str:
     p = project[0].lower().replace("tcga-", "")
     if data_type:
