@@ -32,6 +32,11 @@ SUGAR_FIELDS: dict[str, str] = {
 }
 
 
+# Recipes that can run after a successful pull. Names map to functions in
+# pipeline.RECIPE_REGISTRY (registered there to avoid circular imports).
+KNOWN_RECIPES: tuple[str, ...] = ("variants", "samples", "frequency")
+
+
 @dataclass
 class CohortSpec:
     name: str
@@ -39,6 +44,12 @@ class CohortSpec:
     filters: dict[str, Any] = field(default_factory=dict)
     gdc_filter: dict | None = None
     n_processes: int = 4
+    recipes: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        bad = [r for r in self.recipes if r not in KNOWN_RECIPES]
+        if bad:
+            raise ValueError(f"unknown recipe(s): {bad}. Known: {list(KNOWN_RECIPES)}")
 
     @property
     def cohort_dir(self) -> Path:
@@ -59,14 +70,21 @@ class CohortSpec:
         return open_access(f_and(*clauses) if clauses else None)
 
 
-def load_yaml(path: Path) -> CohortSpec:
+def load_yaml(path: Path, *, out_dir_override: Path | None = None) -> CohortSpec:
+    """Load a cohort YAML. If `out_dir_override` is given (e.g. from a CLI
+    `--out` flag), it wins over the YAML's `out_dir` field."""
     data = yaml.safe_load(path.read_text())
+    if out_dir_override is not None:
+        out_dir = out_dir_override.expanduser().resolve()
+    else:
+        out_dir = Path(data.get("out_dir", "./cohorts")).expanduser().resolve()
     return CohortSpec(
         name=data["name"],
-        out_dir=Path(data.get("out_dir", "./cohorts")).expanduser().resolve(),
+        out_dir=out_dir,
         filters=data.get("filters", {}) or {},
         gdc_filter=data.get("gdc_filter"),
         n_processes=int((data.get("download") or {}).get("n_processes", 4)),
+        recipes=list(data.get("recipes") or []),
     )
 
 

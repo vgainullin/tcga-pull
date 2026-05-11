@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -162,7 +163,43 @@ def run(
     console.print(f"  manifest : {manifest_path}")
     console.print(f"  provenance: {prov_path}")
     console.print(f"  raw      : {raw_path}")
+
+    # Run any post-processing recipes declared in the YAML
+    for recipe_name in spec.recipes:
+        recipe = RECIPE_REGISTRY.get(recipe_name)
+        if recipe is None:  # already validated in CohortSpec.__post_init__
+            continue
+        console.print(f"\n[cyan]==> recipe: {recipe_name}[/cyan]")
+        recipe(cohort_dir)
+
     return cohort_dir
+
+
+def _recipe_variants(cohort_dir: Path) -> None:
+    from .variants_polars import write_variants
+
+    write_variants(cohort_dir)
+
+
+def _recipe_samples(cohort_dir: Path) -> None:
+    from .samples_polars import write_samples
+
+    write_samples(cohort_dir)
+
+
+def _recipe_frequency(cohort_dir: Path) -> None:
+    from .frequency import write_gene_frequency, write_variant_frequency
+
+    write_gene_frequency(cohort_dir)
+    write_variant_frequency(cohort_dir)
+
+
+# Name → function. Names must match KNOWN_RECIPES in config.py.
+RECIPE_REGISTRY: dict[str, Callable[[Path], None]] = {
+    "variants": _recipe_variants,
+    "samples": _recipe_samples,
+    "frequency": _recipe_frequency,
+}
 
 
 def _human_size(n: int) -> str:

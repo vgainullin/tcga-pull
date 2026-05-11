@@ -1,0 +1,93 @@
+# tcga-pull cohort spec — Pancancer somatic SNV MAFs from the GDC.
+#
+# Open-access matched tumor-normal somatic mutation calls (Aliquot Ensemble
+# Masked workflow) across every GDC project that publishes this data shape.
+# 55 projects, ~19,552 cases, ~21,300 MAF files, ~4.1 M variant rows.
+#
+# Reproduce end-to-end with one command:
+#
+#     tcga-pull pull examples/pancancer_snv.yaml --yes
+#
+# `pull` honours the `recipes:` section below and runs them after the
+# download finishes, so the final cohort dir holds clinical.parquet,
+# manifest.parquet, variants.parquet, samples.parquet,
+# gene_frequency.parquet, and variant_frequency.parquet — the full set.
+#
+# `out_dir` is intentionally omitted — the default `./cohorts` is fine, and
+# omitting it keeps the spec portable across machines.
+
+name: pancancer_snv
+
+filters:
+  data_category: Simple Nucleotide Variation
+  data_format: MAF
+  project:
+    # TCGA — 33 projects
+    - TCGA-ACC
+    - TCGA-BLCA
+    - TCGA-BRCA
+    - TCGA-CESC
+    - TCGA-CHOL
+    - TCGA-COAD
+    - TCGA-DLBC
+    - TCGA-ESCA
+    - TCGA-GBM
+    - TCGA-HNSC
+    - TCGA-KICH
+    - TCGA-KIRC
+    - TCGA-KIRP
+    - TCGA-LAML
+    - TCGA-LGG
+    - TCGA-LIHC
+    - TCGA-LUAD
+    - TCGA-LUSC
+    - TCGA-MESO
+    - TCGA-OV
+    - TCGA-PAAD
+    - TCGA-PCPG
+    - TCGA-PRAD
+    - TCGA-READ
+    - TCGA-SARC
+    - TCGA-SKCM
+    - TCGA-STAD
+    - TCGA-TGCT
+    - TCGA-THCA
+    - TCGA-THYM
+    - TCGA-UCEC
+    - TCGA-UCS
+    - TCGA-UVM
+    # TARGET — pediatric
+    - TARGET-AML
+    - TARGET-ALL-P2
+    - TARGET-ALL-P3
+    - TARGET-NBL
+    - TARGET-OS
+    - TARGET-WT
+    # CPTAC — proteogenomic
+    - CPTAC-2
+    - CPTAC-3
+    # other programs
+    - MMRF-COMMPASS
+    - ALCHEMIST-ALCH
+    - MP2PRT-ALL
+    - HCMI-CMDC
+    - BEATAML1.0-COHORT
+    - CMI-MBC
+    - CMI-MPC
+    - CMI-ASC
+    - CGCI-HTMCP-CC
+    - CGCI-BLGSP
+    - RC-PTCL
+    - CDDP_EAGLE-1
+    - EXCEPTIONAL_RESPONDERS-ER
+    - CCG-CUPP
+
+download:
+  n_processes: 4
+
+# Post-processing recipes that run after the pull completes.
+# Order matters: samples depends on variants; frequency depends on both.
+recipes:
+  - variants
+  - samples
+  - frequency

@@ -26,7 +26,7 @@ def _spec_from_args(
     config: Path | None,
     *,
     name: str | None,
-    out: Path,
+    out: Path | None,
     project: list[str] | None,
     projects_file: Path | None,
     data_type: list[str] | None,
@@ -38,7 +38,7 @@ def _spec_from_args(
     n_processes: int,
 ):
     if config:
-        return load_yaml(config)
+        return load_yaml(config, out_dir_override=out)
 
     # Merge --project (repeatable) with --projects-file (newline-separated)
     projects: list[str] = list(project or [])
@@ -54,9 +54,11 @@ def _spec_from_args(
         )
         raise typer.Exit(2)
     cohort_name = name or _default_name(projects, data_type)
+    # `out` falls back to ./cohorts when not provided (flag mode only)
+    effective_out = (out or Path("./cohorts")).expanduser().resolve()
     return from_flags(
         name=cohort_name,
-        out_dir=out.expanduser().resolve(),
+        out_dir=effective_out,
         project=projects,
         data_type=data_type,
         data_category=data_category,
@@ -72,7 +74,12 @@ def _spec_from_args(
 def pull(
     config: Path | None = typer.Argument(None, exists=True, dir_okay=False, help="Cohort YAML."),
     name: str | None = typer.Option(None, "--name"),
-    out: Path = typer.Option(Path("./cohorts"), "--out", "-o"),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Output base dir. Overrides YAML out_dir. Defaults to ./cohorts in flag mode.",
+    ),
     project: list[str] | None = typer.Option(None, "--project", help="e.g. TCGA-BRCA. Repeatable."),
     projects_file: Path | None = typer.Option(
         None,

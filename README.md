@@ -26,6 +26,25 @@ annotations, and convenience flags (`is_coding`, `is_high_impact`,
 `is_rare`, `primary_aliquot`). Ready for analysis with pandas / DuckDB /
 Polars without any further wrangling.
 
+## Reproducing the pancancer SNV cohort
+
+A cohort is fully specified by a YAML file. `examples/pancancer_snv.yaml`
+captures the 55-project pancancer somatic-SNV cohort (~19,552 cases, ~21,300
+MAFs, ~4.1 M variants) plus the post-processing recipes that build
+`variants.parquet`, `samples.parquet`, and the frequency tables. One command
+rebuilds the whole thing:
+
+```sh
+tcga-pull pull examples/pancancer_snv.yaml --yes
+```
+
+Resumable: a killed `pull` picks up from `_downloads/` on restart. Expected
+wall time on the live GDC: ~60–75 min for the download, a few minutes for
+each recipe.
+
+For any other cohort, write your own YAML — see
+[examples/pancancer_snv.yaml](examples/pancancer_snv.yaml) for the format.
+
 ## Install
 
 ```sh

@@ -96,3 +96,27 @@ def test_cohort_spec_resolve_filter_wraps_open_access():
     access_clause = _find_leaf(flt, "access")
     assert access_clause is not None
     assert access_clause["content"]["value"] == ["open"]
+
+
+def test_yaml_with_recipes(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: x\n"
+        "filters: {project: TCGA-CHOL}\n"
+        "recipes:\n"
+        "  - variants\n"
+        "  - samples\n"
+        "  - frequency\n"
+    )
+    spec = load_yaml(yaml_path)
+    assert spec.recipes == ["variants", "samples", "frequency"]
+
+
+def test_cohort_spec_rejects_unknown_recipe():
+    with pytest.raises(ValueError, match="unknown recipe"):
+        CohortSpec(name="x", out_dir=Path("/tmp"), recipes=["variants", "no_such_recipe"])
+
+
+def test_cohort_spec_recipes_default_empty():
+    spec = CohortSpec(name="x", out_dir=Path("/tmp"))
+    assert spec.recipes == []
