@@ -267,9 +267,24 @@ OUTPUT_COLUMN_ORDER: list[str] = [
 ]
 
 
+def aggregate_mafs(paths: list[Path]) -> pd.DataFrame:
+    """Reusable building block: read a list of MAFs, project to our schema,
+    add row-level flags, concatenate. Cohort-wide context (clinical join,
+    primary_aliquot selection) lives in `aggregate_cohort`."""
+    frames: list[pd.DataFrame] = []
+    for p in paths:
+        df = read_maf(p)
+        df["source_file"] = p.name
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    variants = pd.concat(frames, ignore_index=True)
+    return _add_flags(variants)
+
+
 def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
     """Walk cohort_dir/data/<submitter>/simple_nucleotide_variation/*.maf.gz,
-    concatenate, join clinical lineage cols, and add convenience flags.
+    concatenate, join clinical lineage cols, mark primary aliquot, order cols.
     """
     cohort_dir = Path(cohort_dir)
     mafs = sorted(cohort_dir.glob("data/*/simple_nucleotide_variation/*.maf.gz"))
@@ -278,12 +293,7 @@ def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
             f"no .maf.gz files under {cohort_dir}/data/*/simple_nucleotide_variation/"
         )
 
-    frames: list[pd.DataFrame] = []
-    for p in mafs:
-        df = read_maf(p)
-        df["source_file"] = p.name
-        frames.append(df)
-    variants = pd.concat(frames, ignore_index=True)
+    variants = aggregate_mafs(mafs)
 
     # Join in project_id + primary_diagnosis from clinical.parquet
     clin_path = cohort_dir / "clinical.parquet"
@@ -295,7 +305,6 @@ def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
         )
         variants = variants.merge(clin, on="case_id", how="left")
 
-    variants = _add_flags(variants)
     variants = _mark_primary_aliquot(variants)
 
     front = [c for c in OUTPUT_COLUMN_ORDER if c in variants.columns]

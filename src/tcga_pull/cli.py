@@ -220,6 +220,29 @@ def samples(
         )
 
 
+@app.command("validate-mafs")
+def validate_mafs_cmd(
+    path: Path = typer.Argument(
+        ...,
+        exists=True,
+        help="Directory to recurse through, or a single .maf.gz file.",
+    ),
+) -> None:
+    """Read every .maf.gz under PATH; report parse errors, schema coverage,
+    row totals, and program breakdown. Does not write anything."""
+    from .validate import find_mafs, render_report, validate_mafs
+
+    mafs = [path] if path.is_file() else find_mafs(path)
+    if not mafs:
+        console.print(f"[yellow]no .maf.gz files under {path}[/yellow]")
+        raise typer.Exit(2)
+    console.print(f"[dim]scanning {len(mafs):,} MAFs under {path}...[/dim]")
+    report = validate_mafs(mafs)
+    render_report(report, console=console)
+    if report.files_failed or report.missing_required_columns:
+        raise typer.Exit(1)
+
+
 def _default_name(project: list[str], data_type: list[str] | None) -> str:
     if len(project) == 1:
         p = project[0].lower().replace("tcga-", "")

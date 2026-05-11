@@ -54,6 +54,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`access`, `data_type`, `data_format`, …) instead of the `files.` prefix.
   `for_cases_endpoint` re-prefixes when translating to /cases. Handwritten
   `files.X` filters still pass through unchanged.
+- `bulk_download_via_api` is now resilient: transient 5xx / connection /
+  timeout / tar errors retry with exponential backoff (5 tries, capped at
+  60s). 4xx errors fail fast. Restarting a partial pull skips files already
+  on disk so an interrupted run resumes from where it stopped.
+
+### Added (continued)
+- `tcga-pull validate-mafs <path>` subcommand: walks a directory recursively
+  (or single file), reads every `*.maf.gz` through `read_maf`, and reports
+  parse errors, schema completeness against `REQUIRED_OUTPUT_COLUMNS`,
+  optional-column coverage, row totals, and a program breakdown inferred
+  from `tumor_barcode` prefixes. Designed to catch schema drift between
+  TCGA / TARGET / CPTAC / MMRF / CMI / etc. before the parquet write.
+  Backed by a new `validate.py` module + `aggregate_mafs(paths)` building
+  block factored out of `aggregate_cohort`.
 - Conversational agent over OpenRouter (`tcga-pull agent`) with five tools
   (`list_projects`, `search_fields`, `count_files`, `preview_clinical`,
   `download`) and a hard `questionary.confirm` gate before any download.
