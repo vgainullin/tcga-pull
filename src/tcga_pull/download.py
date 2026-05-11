@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -19,6 +20,19 @@ from .gdc import GDC_API
 GDC_CLIENT_BIN = "gdc-client"
 BULK_BATCH_SIZE = 200
 BULK_FILE_SIZE_LIMIT = 100 * 1024 * 1024  # use bulk only when every file is <100MB
+BULK_MAX_RETRIES = 5
+BULK_RETRY_BASE_DELAY = 2.0  # seconds; doubled each retry, capped at BULK_RETRY_MAX_DELAY
+BULK_RETRY_MAX_DELAY = 60.0
+
+
+def _is_retriable_http_error(exc: BaseException) -> bool:
+    """Server-side / transport errors are retriable; client-side (4xx) is not."""
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout, tarfile.TarError)):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        resp = exc.response
+        return resp is not None and 500 <= resp.status_code < 600
+    return False
 
 
 def slugify(s: str | None) -> str:
@@ -78,53 +92,93 @@ def should_use_bulk(file_hits: list[dict]) -> bool:
     return all(int(h.get("file_size") or 0) < BULK_FILE_SIZE_LIMIT for h in file_hits)
 
 
+def _fetch_batch(
+    batch: list[str],
+    name_by_id: dict[str, str],
+    download_dir: Path,
+    url: str,
+) -> None:
+    """Issue one POST /data for the batch and extract to download_dir/<id>/<name>."""
+    with requests.post(url, json={"ids": batch}, stream=True, timeout=600) as r:
+        r.raise_for_status()
+        # GDC behavior: 1 id → raw file; ≥2 ids → tar.gz of <id>/<name>
+        if len(batch) > 1:
+            with tarfile.open(fileobj=r.raw, mode="r|gz") as tar:
+                for m in tar:
+                    if m.isfile():
+                        tar.extract(m, path=download_dir)
+        else:
+            fid = batch[0]
+            fname = name_by_id[fid]
+            dest = download_dir / fid / fname
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with dest.open("wb") as fh:
+                for chunk in r.iter_content(chunk_size=1 << 16):
+                    if chunk:
+                        fh.write(chunk)
+
+
 def bulk_download_via_api(
     file_hits: list[dict],
     download_dir: Path,
     *,
     base_url: str = GDC_API,
     batch_size: int = BULK_BATCH_SIZE,
+    max_retries: int = BULK_MAX_RETRIES,
     console: Console | None = None,
 ) -> None:
     """POST file IDs to GDC `/data` and stream-extract the tar.gz response into
-    `download_dir/<file_id>/<file_name>` — the same layout gdc-client produces,
+    `download_dir/<file_id>/<file_name>` — same layout gdc-client produces,
     so the existing `restructure()` step works unchanged.
+
+    Resumable: files already on disk are skipped. Retries transient server
+    errors (5xx / connection / timeout / tar parse) with exponential backoff;
+    4xx errors fail immediately.
 
     Open-access only (no token). For controlled files use gdc-client.
     """
     download_dir.mkdir(parents=True, exist_ok=True)
     console = console or Console()
     url = base_url.rstrip("/") + "/data"
-    ids = [h["file_id"] for h in file_hits]
-    name_by_id = {h["file_id"]: h["file_name"] for h in file_hits}
+
+    # Resume: skip files already on disk (non-empty)
+    def _already_have(h: dict) -> bool:
+        p = download_dir / h["file_id"] / h["file_name"]
+        return bool(p.exists() and p.stat().st_size > 0)
+
+    pending = [h for h in file_hits if not _already_have(h)]
+    skipped = len(file_hits) - len(pending)
+    if skipped:
+        console.log(f"[dim]bulk: resuming, {skipped}/{len(file_hits)} files already on disk[/dim]")
+    if not pending:
+        return
+
+    ids = [h["file_id"] for h in pending]
+    name_by_id = {h["file_id"]: h["file_name"] for h in pending}
     total = len(ids)
     n_batches = (total + batch_size - 1) // batch_size
     done = 0
 
     for bi in range(n_batches):
         batch = ids[bi * batch_size : (bi + 1) * batch_size]
-        with (
-            console.status(
-                f"[cyan]POST /data  batch {bi + 1}/{n_batches}  ({len(batch)} files)[/cyan]"
-            ),
-            requests.post(url, json={"ids": batch}, stream=True, timeout=600) as r,
-        ):
-            r.raise_for_status()
-            # GDC behavior: 1 id → raw file; ≥2 ids → tar.gz of <id>/<name>
-            if len(batch) > 1:
-                with tarfile.open(fileobj=r.raw, mode="r|gz") as tar:
-                    for m in tar:
-                        if m.isfile():
-                            tar.extract(m, path=download_dir)
-            else:
-                fid = batch[0]
-                fname = name_by_id[fid]
-                dest = download_dir / fid / fname
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                with dest.open("wb") as fh:
-                    for chunk in r.iter_content(chunk_size=1 << 16):
-                        if chunk:
-                            fh.write(chunk)
+        attempt = 0
+        while True:
+            try:
+                with console.status(
+                    f"[cyan]POST /data  batch {bi + 1}/{n_batches}  ({len(batch)} files)[/cyan]"
+                ):
+                    _fetch_batch(batch, name_by_id, download_dir, url)
+                break
+            except Exception as e:
+                if attempt + 1 >= max_retries or not _is_retriable_http_error(e):
+                    raise
+                delay = min(BULK_RETRY_BASE_DELAY * (2**attempt), BULK_RETRY_MAX_DELAY)
+                console.log(
+                    f"[yellow]batch {bi + 1}/{n_batches} failed ({type(e).__name__}: {e}); "
+                    f"retry {attempt + 1}/{max_retries} in {delay:.0f}s[/yellow]"
+                )
+                time.sleep(delay)
+                attempt += 1
         done += len(batch)
         console.log(f"  bulk: {done}/{total}")
 
