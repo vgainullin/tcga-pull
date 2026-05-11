@@ -61,6 +61,12 @@ tcga-pull preview --project TCGA-CHOL --data-type "Gene Expression Quantificatio
 tcga-pull pull --project TCGA-CHOL --data-type "Gene Expression Quantification" \
                --workflow "STAR - Counts" --name chol_rnaseq
 
+# Multi-project pulls: repeat --project, point at a file, or use YAML
+tcga-pull pull --project TCGA-BRCA --project TCGA-LUAD \
+               --data-category "Simple Nucleotide Variation" --data-format MAF
+tcga-pull pull --projects-file projects.txt \
+               --data-category "Simple Nucleotide Variation" --data-format MAF
+
 # Or from a YAML config
 tcga-pull pull cohort.yaml
 
@@ -78,11 +84,15 @@ tcga-pull agent -q "BRCA primary tumor RNA-seq STAR counts"
 ### YAML cohort spec
 
 ```yaml
-name: brca_snv
+name: pancancer_snv
 out_dir: ./cohorts
 filters:
-  project: TCGA-BRCA
+  project:                 # any sugar field can be a list
+    - TCGA-BRCA
+    - TCGA-LUAD
+    - TARGET-AML
   data_category: Simple Nucleotide Variation
+  data_format: MAF
 # Or pass-through raw GDC filter:
 # gdc_filter: { op: "and", content: [ ... ] }
 download:

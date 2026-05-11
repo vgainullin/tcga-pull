@@ -72,6 +72,7 @@ def from_flags(
     project: list[str] | None = None,
     data_type: list[str] | None = None,
     data_category: list[str] | None = None,
+    data_format: list[str] | None = None,
     experimental_strategy: list[str] | None = None,
     workflow: list[str] | None = None,
     sample_type: list[str] | None = None,
@@ -84,6 +85,8 @@ def from_flags(
         filters["data_type"] = data_type
     if data_category:
         filters["data_category"] = data_category
+    if data_format:
+        filters["data_format"] = data_format
     if experimental_strategy:
         filters["experimental_strategy"] = experimental_strategy
     if workflow:
@@ -91,3 +94,14 @@ def from_flags(
     if sample_type:
         filters["sample_type"] = sample_type
     return CohortSpec(name=name, out_dir=out_dir, filters=filters, n_processes=n_processes)
+
+
+def read_projects_file(path: Path) -> list[str]:
+    """One project_id per line. Lines starting with '#' and blank lines are ignored."""
+    out: list[str] = []
+    for raw in Path(path).read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        out.append(line)
+    return out

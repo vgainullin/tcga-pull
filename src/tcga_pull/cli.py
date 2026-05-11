@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import pipeline
-from .config import from_flags, load_yaml
+from .config import from_flags, load_yaml, read_projects_file
 from .gdc import GDCClient
 
 app = typer.Typer(
@@ -27,8 +27,10 @@ def _spec_from_args(
     name: str | None,
     out: Path,
     project: list[str] | None,
+    projects_file: Path | None,
     data_type: list[str] | None,
     data_category: list[str] | None,
+    data_format: list[str] | None,
     experimental_strategy: list[str] | None,
     workflow: list[str] | None,
     sample_type: list[str] | None,
@@ -36,19 +38,28 @@ def _spec_from_args(
 ):
     if config:
         return load_yaml(config)
-    if not project:
+
+    # Merge --project (repeatable) with --projects-file (newline-separated)
+    projects: list[str] = list(project or [])
+    if projects_file is not None:
+        projects.extend(read_projects_file(projects_file))
+    # de-dupe while preserving order
+    projects = list(dict.fromkeys(projects))
+
+    if not projects:
         console.print(
-            "[yellow]Need either a YAML config or --project. "
+            "[yellow]Need either a YAML config, --project, or --projects-file. "
             "Try `tcga-pull projects` to list available projects.[/yellow]"
         )
         raise typer.Exit(2)
-    cohort_name = name or _default_name(project, data_type)
+    cohort_name = name or _default_name(projects, data_type)
     return from_flags(
         name=cohort_name,
         out_dir=out.expanduser().resolve(),
-        project=project,
+        project=projects,
         data_type=data_type,
         data_category=data_category,
+        data_format=data_format,
         experimental_strategy=experimental_strategy,
         workflow=workflow,
         sample_type=sample_type,
@@ -61,9 +72,17 @@ def pull(
     config: Path | None = typer.Argument(None, exists=True, dir_okay=False, help="Cohort YAML."),
     name: str | None = typer.Option(None, "--name"),
     out: Path = typer.Option(Path("./cohorts"), "--out", "-o"),
-    project: list[str] | None = typer.Option(None, "--project", help="e.g. TCGA-BRCA"),
+    project: list[str] | None = typer.Option(None, "--project", help="e.g. TCGA-BRCA. Repeatable."),
+    projects_file: Path | None = typer.Option(
+        None,
+        "--projects-file",
+        exists=True,
+        dir_okay=False,
+        help="File with one project_id per line. # comments + blank lines allowed.",
+    ),
     data_type: list[str] | None = typer.Option(None, "--data-type"),
     data_category: list[str] | None = typer.Option(None, "--data-category"),
+    data_format: list[str] | None = typer.Option(None, "--data-format"),
     experimental_strategy: list[str] | None = typer.Option(None, "--strategy"),
     workflow: list[str] | None = typer.Option(None, "--workflow"),
     sample_type: list[str] | None = typer.Option(None, "--sample-type"),
@@ -76,8 +95,10 @@ def pull(
         name=name,
         out=out,
         project=project,
+        projects_file=projects_file,
         data_type=data_type,
         data_category=data_category,
+        data_format=data_format,
         experimental_strategy=experimental_strategy,
         workflow=workflow,
         sample_type=sample_type,
@@ -90,8 +111,10 @@ def pull(
 def preview(
     config: Path | None = typer.Argument(None, exists=True, dir_okay=False),
     project: list[str] | None = typer.Option(None, "--project"),
+    projects_file: Path | None = typer.Option(None, "--projects-file", exists=True, dir_okay=False),
     data_type: list[str] | None = typer.Option(None, "--data-type"),
     data_category: list[str] | None = typer.Option(None, "--data-category"),
+    data_format: list[str] | None = typer.Option(None, "--data-format"),
     experimental_strategy: list[str] | None = typer.Option(None, "--strategy"),
     workflow: list[str] | None = typer.Option(None, "--workflow"),
     sample_type: list[str] | None = typer.Option(None, "--sample-type"),
@@ -102,8 +125,10 @@ def preview(
         name="preview",
         out=Path("/tmp"),
         project=project,
+        projects_file=projects_file,
         data_type=data_type,
         data_category=data_category,
+        data_format=data_format,
         experimental_strategy=experimental_strategy,
         workflow=workflow,
         sample_type=sample_type,
@@ -196,7 +221,10 @@ def samples(
 
 
 def _default_name(project: list[str], data_type: list[str] | None) -> str:
-    p = project[0].lower().replace("tcga-", "")
+    if len(project) == 1:
+        p = project[0].lower().replace("tcga-", "")
+    else:
+        p = f"multi_{len(project)}_projects"
     if data_type:
         dt = data_type[0].lower().replace(" ", "_")
         return f"{p}_{dt}"

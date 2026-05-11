@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   barcode, normal_source), and patient-level mutation burden
   (n_variants_total/coding/high_impact, computed on the primary aliquot
   only to avoid double-counting).
+- Multi-project pulls: `--project` is repeatable, `--projects-file` reads
+  newline-separated project IDs (# comments + blank lines ignored), and
+  YAML accepts a list for any sugar filter (e.g. `project: [TCGA-BRCA, TCGA-LUAD]`).
+- `--data-format` flag added to `pull` and `preview` (was missing from the
+  CLI surface even though the sugar mapping supported it).
 - Conversational agent over OpenRouter (`tcga-pull agent`) with five tools
   (`list_projects`, `search_fields`, `count_files`, `preview_clinical`,
   `download`) and a hard `questionary.confirm` gate before any download.
