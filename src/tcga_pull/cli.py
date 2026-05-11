@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
@@ -166,6 +167,32 @@ def agent(
     run_agent(query=query, out=out, console=console)
 
 
+def _resolve_variants_engine(engine: str) -> Callable[[Path], Path]:
+    if engine == "polars":
+        from .variants_polars import write_variants
+
+        return write_variants
+    if engine == "pandas":
+        from .variants import write_variants
+
+        return write_variants
+    console.print(f"[red]unknown engine: {engine!r} (use 'polars' or 'pandas')[/red]")
+    raise typer.Exit(2)
+
+
+def _resolve_samples_engine(engine: str) -> Callable[[Path], Path]:
+    if engine == "polars":
+        from .samples_polars import write_samples
+
+        return write_samples
+    if engine == "pandas":
+        from .samples import write_samples
+
+        return write_samples
+    console.print(f"[red]unknown engine: {engine!r} (use 'polars' or 'pandas')[/red]")
+    raise typer.Exit(2)
+
+
 @app.command()
 def variants(
     cohort_dir: Path = typer.Argument(
@@ -174,21 +201,25 @@ def variants(
         file_okay=False,
         help="A cohort dir produced by `tcga-pull pull` containing SNV MAFs.",
     ),
+    engine: str = typer.Option(
+        "polars", "--engine", help="polars (default) or pandas. Both produce identical parquet."
+    ),
 ) -> None:
     """Aggregate per-case MAFs into <cohort>/variants.parquet (one row per variant)."""
-    from .variants import write_variants
+    import polars as pl
 
+    write_variants = _resolve_variants_engine(engine)
     out = write_variants(cohort_dir)
-    import pandas as pd
-
-    df = pd.read_parquet(out)
-    console.print(f"[green]wrote[/green] {out}  ({len(df):,} variants x {df.shape[1]} cols)")
+    df = pl.read_parquet(out)
+    console.print(
+        f"[green]wrote[/green] {out}  ({len(df):,} variants x {df.width} cols, engine={engine})"
+    )
     if "primary_diagnosis" in df.columns:
         console.print("\n[dim]top primary_diagnosis:[/dim]")
-        console.print(df["primary_diagnosis"].value_counts().head(5).to_string())
+        console.print(df["primary_diagnosis"].value_counts(sort=True).head(5))
     if "variant_class" in df.columns:
         console.print("\n[dim]variant_class:[/dim]")
-        console.print(df["variant_class"].value_counts().head(8).to_string())
+        console.print(df["variant_class"].value_counts(sort=True).head(8))
 
 
 @app.command()
@@ -199,24 +230,32 @@ def samples(
         file_okay=False,
         help="A cohort dir with clinical.parquet + variants.parquet.",
     ),
+    engine: str = typer.Option("polars", "--engine", help="polars (default) or pandas."),
 ) -> None:
     """Build per-case samples.parquet (demographics + lineage + burden)."""
-    from .samples import write_samples
+    import polars as pl
 
+    write_samples = _resolve_samples_engine(engine)
     out = write_samples(cohort_dir)
-    import pandas as pd
-
-    df = pd.read_parquet(out)
-    console.print(f"[green]wrote[/green] {out}  ({len(df):,} cases x {df.shape[1]} cols)")
+    df = pl.read_parquet(out)
+    console.print(
+        f"[green]wrote[/green] {out}  ({len(df):,} cases x {df.width} cols, engine={engine})"
+    )
     if "lineage" in df.columns:
         console.print("\n[dim]lineage (top 8):[/dim]")
-        console.print(df["lineage"].value_counts().head(8).to_string())
+        console.print(df["lineage"].value_counts(sort=True).head(8))
     if "n_variants_total" in df.columns:
-        bs = df["n_variants_total"].describe()
+        stats = df.select(
+            median=pl.col("n_variants_total").median(),
+            q25=pl.col("n_variants_total").quantile(0.25),
+            q75=pl.col("n_variants_total").quantile(0.75),
+            smax=pl.col("n_variants_total").max(),
+        ).row(0, named=True)
         console.print(
             f"\n[dim]burden (n_variants_total, primary aliquot only):[/dim] "
-            f"median={int(bs['50%'])}  IQR={int(bs['25%'])}-{int(bs['75%'])}  "
-            f"max={int(bs['max'])}"
+            f"median={int(stats['median'] or 0)}  "
+            f"IQR={int(stats['q25'] or 0)}-{int(stats['q75'] or 0)}  "
+            f"max={int(stats['smax'] or 0)}"
         )
 
 
