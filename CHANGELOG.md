@@ -43,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   YAML accepts a list for any sugar filter (e.g. `project: [TCGA-BRCA, TCGA-LUAD]`).
 - `--data-format` flag added to `pull` and `preview` (was missing from the
   CLI surface even though the sugar mapping supported it).
+
+### Fixed
+- Faceted queries on the GDC `/files` endpoint no longer 500. Root cause was
+  nested `AND` clauses in our filter tree — `f_and` now auto-flattens, so a
+  filter combined with any nested facet works reliably. Added an offline
+  unit test for the flattening and a network-tagged regression test that
+  asserts the GDC API returns 200 for a faceted open-access SNV query.
+- Internal convention: file-rooted filter fields now use bare names
+  (`access`, `data_type`, `data_format`, …) instead of the `files.` prefix.
+  `for_cases_endpoint` re-prefixes when translating to /cases. Handwritten
+  `files.X` filters still pass through unchanged.
 - Conversational agent over OpenRouter (`tcga-pull agent`) with five tools
   (`list_projects`, `search_fields`, `count_files`, `preview_clinical`,
   `download`) and a hard `questionary.confirm` gate before any download.

@@ -51,7 +51,8 @@ def test_from_flags_multi_project():
     project_clause = _find_leaf(flt, "cases.project.project_id")
     assert project_clause is not None
     assert project_clause["content"]["value"] == ["TCGA-BRCA", "TCGA-LUAD", "TARGET-AML"]
-    format_clause = _find_leaf(flt, "files.data_format")
+    # File-rooted fields live as bare names on /files (no `files.` prefix)
+    format_clause = _find_leaf(flt, "data_format")
     assert format_clause is not None
     assert format_clause["content"]["value"] == ["MAF"]
 
@@ -91,6 +92,7 @@ def test_yaml_unknown_filter_raises(tmp_path: Path):
 def test_cohort_spec_resolve_filter_wraps_open_access():
     spec = CohortSpec(name="x", out_dir=Path("/tmp"), filters={"project": "TCGA-CHOL"})
     flt = spec.resolve_filter()
-    access_clause = _find_leaf(flt, "files.access")
+    # Bare `access` — file-rooted fields are unprefixed on /files
+    access_clause = _find_leaf(flt, "access")
     assert access_clause is not None
     assert access_clause["content"]["value"] == ["open"]

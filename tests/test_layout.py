@@ -41,6 +41,47 @@ def test_for_cases_endpoint_handles_nested_or():
     assert all(c["content"]["field"] == "project.project_id" for c in out["content"])
 
 
+def test_for_cases_endpoint_prefixes_bare_file_fields():
+    # bare names on /files → files.X on /cases (it's a join from the case root)
+    flt = f_and(
+        f_in("access", ["open"]),
+        f_in("data_format", ["MAF"]),
+        f_in("data_category", ["Simple Nucleotide Variation"]),
+    )
+    out = for_cases_endpoint(flt)
+    fields = [c["content"]["field"] for c in out["content"]]
+    assert fields == ["files.access", "files.data_format", "files.data_category"]
+
+
+def test_for_cases_endpoint_passes_through_already_prefixed_files_fields():
+    # If a caller already wrote `files.X` (e.g. handwritten gdc_filter), leave it.
+    flt = f_in("files.access", ["open"])
+    out = for_cases_endpoint(flt)
+    assert out["content"]["field"] == "files.access"
+
+
+def test_f_and_flattens_nested_ands():
+    # GDC /files 500s on faceted queries when the filter tree has nested ANDs.
+    # f_and() must produce a single top-level `and` with all leaves.
+    inner = f_and(f_in("a", [1]), f_in("b", [2]))
+    outer = f_and(inner, f_in("c", [3]))
+    assert outer["op"] == "and"
+    fields = [clause["content"]["field"] for clause in outer["content"]]
+    assert fields == ["a", "b", "c"], f"expected flat tree, got nested: {outer}"
+
+
+def test_f_and_single_clause_unwraps():
+    only = f_and(f_in("a", [1]))
+    assert only["op"] == "in"
+    assert only["content"]["field"] == "a"
+
+
+def test_f_and_skips_empty_clauses():
+    out = f_and(None, f_in("a", [1]), {})
+    assert out["op"] == "in"
+    assert out["content"]["field"] == "a"
+
+
 def test_slugify():
     assert slugify("Transcriptome Profiling") == "transcriptome_profiling"
     assert slugify(None) == "unknown"

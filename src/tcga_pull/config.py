@@ -10,13 +10,18 @@ import yaml
 
 from .gdc import f_and, f_in, open_access
 
-# sugar key -> GDC field name
+# sugar key -> GDC field name on the /files endpoint.
+# Convention: bare names for file-rooted fields, `cases.X` for case joins,
+# `analysis.X` for analysis joins. for_cases_endpoint() does the inverse
+# translation when the filter is sent to /cases. The bare form for file
+# fields matters: GDC's /files endpoint 500s on faceted queries when
+# file-rooted clauses carry the `files.` prefix.
 SUGAR_FIELDS: dict[str, str] = {
     "project": "cases.project.project_id",
-    "data_type": "files.data_type",
-    "data_category": "files.data_category",
-    "data_format": "files.data_format",
-    "experimental_strategy": "files.experimental_strategy",
+    "data_type": "data_type",
+    "data_category": "data_category",
+    "data_format": "data_format",
+    "experimental_strategy": "experimental_strategy",
     "workflow": "analysis.workflow_type",
     "sample_type": "cases.samples.sample_type",
     "tissue_type": "cases.samples.tissue_type",

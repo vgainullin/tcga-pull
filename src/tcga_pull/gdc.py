@@ -66,29 +66,74 @@ def f_eq(field_name: str, value: Any) -> dict:
     return {"op": "=", "content": {"field": field_name, "value": value}}
 
 
-def f_and(*clauses: dict) -> dict:
-    clauses = tuple(c for c in clauses if c)
-    if len(clauses) == 1:
-        return clauses[0]
-    return {"op": "and", "content": list(clauses)}
+def f_and(*clauses: dict | None) -> dict:
+    """Combine clauses under AND. Flattens nested AND children so the result
+    is always a single-level `and` (or just the lone clause if one input).
+    Falsy clauses (None, {}) are skipped — caller can pass conditional clauses.
+
+    GDC's /files endpoint silently 500s on faceted queries when the filter
+    tree contains a nested AND. Keeping the tree flat dodges that and reads
+    more naturally too.
+    """
+    flat: list[dict] = []
+    for c in clauses:
+        if not c:
+            continue
+        if c.get("op") == "and" and isinstance(c.get("content"), list):
+            flat.extend(c["content"])
+        else:
+            flat.append(c)
+    if len(flat) == 1:
+        return flat[0]
+    return {"op": "and", "content": flat}
 
 
-def f_or(*clauses: dict) -> dict:
-    return {"op": "or", "content": list(clauses)}
+def f_or(*clauses: dict | None) -> dict:
+    """Combine clauses under OR, flattening nested OR children for symmetry
+    with f_and (and the same GDC quirk likely applies)."""
+    flat: list[dict] = []
+    for c in clauses:
+        if not c:
+            continue
+        if c.get("op") == "or" and isinstance(c.get("content"), list):
+            flat.extend(c["content"])
+        else:
+            flat.append(c)
+    if len(flat) == 1:
+        return flat[0]
+    return {"op": "or", "content": flat}
 
 
 def open_access(user_filter: dict | None) -> dict:
-    """Wrap a user filter with the mandatory files.access = open clause."""
-    access = f_in("files.access", ["open"])
+    """Wrap a user filter with the mandatory access = open clause.
+
+    Note: bare `access` (no `files.` prefix). GDC's /files endpoint silently
+    500s on faceted queries when file-rooted fields carry the `files.` prefix;
+    using bare names avoids that. `for_cases_endpoint` re-prefixes to
+    `files.access` when the filter is translated to /cases.
+    """
+    access = f_in("access", ["open"])
     return f_and(user_filter, access) if user_filter else access
+
+
+# Field-name prefixes that survive translation unchanged when going /files → /cases
+# (they're either case-rooted or already-prefixed file joins).
+_FILES_ROOTED_PREFIXES_ON_CASES: tuple[str, ...] = ("files.",)
 
 
 def for_cases_endpoint(flt: dict) -> dict:
     """Translate a /files-rooted filter for use on /cases.
 
-    /files is rooted at file: `cases.X`, `files.X` (self), `analysis.X`.
-    /cases is rooted at case: `X` for case fields, `files.X` for file joins,
-    `files.analysis.X` for analysis (which belongs to file, not case).
+    Our convention on /files:
+      * bare names (e.g. "access", "data_format") = file's own fields
+      * "cases.X" = case-side join
+      * "analysis.X" = analysis-side join (analysis belongs to file)
+
+    On /cases the root flips, so:
+      * bare names → "files.X" (file's own fields become a join from case)
+      * "cases.X" → "X" (case-rooted, strip prefix)
+      * "analysis.X" → "files.analysis.X" (analysis joins via file)
+      * Already-prefixed "files.X" passes through unchanged.
     """
 
     def walk(node: Any) -> Any:
@@ -102,6 +147,9 @@ def for_cases_endpoint(flt: dict) -> dict:
             if f.startswith("cases."):
                 f = f[len("cases.") :]
             elif f.startswith("analysis."):
+                f = "files." + f
+            elif not f.startswith(_FILES_ROOTED_PREFIXES_ON_CASES):
+                # bare file field on /files → `files.X` join on /cases
                 f = "files." + f
             return {**node, "content": {**c, "field": f}}
         return node
