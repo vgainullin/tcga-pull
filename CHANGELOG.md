@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-05-12
+
+### Changed
+- Relicensed from Apache-2.0 to MIT.
+- README rewritten in terse, factual style.
+
+### Fixed
+- `pyproject.toml` version now matches `__init__.py` (the v0.1.1 release bumped
+  only the latter).
+
 ## [0.1.1] — 2026-05-12
 
 ### Added
