@@ -101,7 +101,7 @@ def pull(
         help="Cap at N cases per GDC project (deterministic by submitter_id sort).",
     ),
 ) -> None:
-    """Build a cohort from a YAML config or flags. Prompts before downloading."""
+    """Build a cohort from a YAML config or flags. Run `preview` first to dry-run."""
     spec = _spec_from_args(
         config,
         name=name,

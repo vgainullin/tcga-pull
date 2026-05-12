@@ -5,18 +5,17 @@ CLI that pulls cohorts from the NCI Genomic Data Commons into parquet tables.
 ## Install
 
 ```sh
-git clone https://github.com/vgainullin/tcga-pull && cd tcga-pull
-uv sync
+uv tool install git+https://github.com/vgainullin/tcga-pull
 ```
 
-For downloads where individual files exceed 100 MB:
+Puts `tcga-pull` on your PATH. To hack on the code instead, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-```sh
-brew install micromamba
-micromamba create -y -n gdc -c bioconda gdc-client
-ln -sf "$(micromamba env list | awk '/gdc / {print $NF}')/bin/gdc-client" \
-       ~/.local/bin/gdc-client
-```
+Most open-access pulls (MAFs, clinical, small derived files) work through the
+GDC bulk API and need nothing else. If your filter resolves to files over
+100 MB (BAMs, segmented archives), grab the official `gdc-client` binary from
+[gdc.cancer.gov/access-data/gdc-data-transfer-tool](https://gdc.cancer.gov/access-data/gdc-data-transfer-tool)
+and drop it on your PATH; the pipeline detects and uses it automatically.
 
 ## Usage
 
