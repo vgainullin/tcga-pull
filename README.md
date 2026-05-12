@@ -3,11 +3,6 @@
 Query the NCI Genomic Data Commons (GDC), download cohorts, and produce
 per-case structured TCGA data products.
 
-Public surface (CLI + parquet schemas + `load_cohort` Python API) is under
-semver from v0.1.0 onwards — see [SCHEMAS.md](SCHEMAS.md) for the data
-contract and stability promises. Latest tagged release:
-[![GitHub release](https://img.shields.io/github/v/release/vgainullin/tcga-pull)](https://github.com/vgainullin/tcga-pull/releases)
-
 ## What it does
 
 Given a filter over the GDC catalogue, `tcga-pull`:
