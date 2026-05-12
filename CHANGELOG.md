@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tcga-pull install-gdc-client` — downloads the official NCI binary, verifies
+  against pinned per-platform MD5, drops it in `~/.local/bin/`. Replaces the
+  micromamba-based install instructions in the README.
+
 ## [0.1.2] — 2026-05-12
 
 ### Changed

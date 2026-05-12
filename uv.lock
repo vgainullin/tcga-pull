@@ -1423,7 +1423,7 @@ wheels = [
 
 [[package]]
 name = "tcga-pull"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },

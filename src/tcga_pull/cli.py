@@ -398,6 +398,41 @@ def bench_cmd(
         console.print(f"  wrote {save}")
 
 
+@app.command("install-gdc-client")
+def install_gdc_client_cmd(
+    dest: Path = typer.Option(
+        Path.home() / ".local" / "bin",
+        "--dest",
+        help="Install directory. Make sure it's on your PATH.",
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing gdc-client."),
+) -> None:
+    """Download, verify, and install the official NCI gdc-client binary.
+
+    Only needed for cohorts pulling files larger than ~100 MB (BAMs, segmented
+    archives). MAFs and clinical data go through the bulk API and don't need
+    this.
+    """
+    from .install_gdc import GDC_CLIENT_VERSION, InstallError, install_gdc_client
+
+    console.print(f"[dim]installing gdc-client v{GDC_CLIENT_VERSION} into {dest}...[/dim]")
+    try:
+        path = install_gdc_client(dest, force=force)
+    except InstallError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+    console.print(f"[green]installed:[/green] {path}")
+    import os
+
+    on_path = any(Path(p) == path.parent for p in os.environ.get("PATH", "").split(os.pathsep))
+    if not on_path:
+        console.print(
+            f"[yellow]warning:[/yellow] {path.parent} is not on your PATH. "
+            f"Add it, or move/symlink {path.name} somewhere that is."
+        )
+
+
 @app.command("validate-mafs")
 def validate_mafs_cmd(
     path: Path = typer.Argument(

@@ -13,9 +13,15 @@ Puts `tcga-pull` on your PATH. To hack on the code instead, see
 
 Most open-access pulls (MAFs, clinical, small derived files) work through the
 GDC bulk API and need nothing else. If your filter resolves to files over
-100 MB (BAMs, segmented archives), grab the official `gdc-client` binary from
-[gdc.cancer.gov/access-data/gdc-data-transfer-tool](https://gdc.cancer.gov/access-data/gdc-data-transfer-tool)
-and drop it on your PATH; the pipeline detects and uses it automatically.
+100 MB (BAMs, segmented archives), install the official NCI binary:
+
+```sh
+tcga-pull install-gdc-client
+```
+
+Detects your platform, downloads the prebuilt binary from gdc.cancer.gov,
+verifies it against a pinned MD5, and drops it in `~/.local/bin/`. The pull
+pipeline picks it up automatically.
 
 ## Usage
 
