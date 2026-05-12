@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-12
+
+### Added
+- YAML `recipes:` section runs variants / samples / frequency after `pull`.
+- YAML `limit.per_project` and CLI `--limit-per-project` for cohort sampling.
+- `load_cohort()` public API + `SCHEMAS.md`.
+- CI `e2e` job: live `@network` + `@download` pytest tests on every push.
+
+### Changed
+- `polars` promoted from optional `[engines]` extra to core dep; `duckdb`
+  stays in (renamed) `[queries]` extra.
+- `tcga-pull pull` no longer prompts; the preview is the consent gate.
+  `--yes` flag removed (use `tcga-pull preview` for dry-run).
+- CLI `--out` now overrides the YAML's `out_dir` when explicitly passed.
+
+### Removed
+- `scripts/verify.sh` — replaced by pytest `@network` / `@download` markers.
+
 ## [0.1.0] — 2026-05-11
 
 First tagged release. Cohort artefacts and the `load_cohort` Python API are
