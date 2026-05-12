@@ -5,7 +5,7 @@ CLI that pulls cohorts from the NCI Genomic Data Commons into parquet tables.
 ## Install
 
 ```sh
-git clone <repo> && cd tcga-pull
+git clone https://github.com/vgainullin/tcga-pull && cd tcga-pull
 uv sync
 ```
 
