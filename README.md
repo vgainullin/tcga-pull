@@ -206,12 +206,14 @@ uv sync --extra agent
 uv run ruff check
 uv run ruff format --check
 uv run mypy
-uv run pytest
-
-# Full integration ladder (some rungs hit the GDC API, one does a real download)
-./scripts/verify.sh        # rungs 1-3 (no real download)
-./scripts/verify.sh all    # rungs 1-5 (needs OPENROUTER_API_KEY for rung 5)
+uv run pytest                                # offline tests only (default)
+uv run pytest -m network                     # + live GDC API queries
+uv run pytest -m "network or download"       # + live download (~30 s, ~3 MB)
 ```
+
+CI runs the offline suite on every push across a 3.10–3.13 matrix, and runs
+the network + download suite once on Ubuntu 3.13 after the offline suite
+passes.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
 

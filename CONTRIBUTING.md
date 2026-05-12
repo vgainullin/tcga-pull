@@ -17,9 +17,9 @@ The same checks CI runs:
 uv run ruff check
 uv run ruff format --check
 uv run mypy
-uv run pytest                # offline tests
-./scripts/verify.sh          # rungs 1–3 (hits the GDC API, no real download)
-./scripts/verify.sh all      # rungs 1–5 (real download + OpenRouter agent)
+uv run pytest                              # offline tests only (default)
+uv run pytest -m network                   # + live GDC API queries
+uv run pytest -m "network or download"     # + live download (~30 s, ~3 MB)
 ```
 
 `pre-commit` runs `ruff check --fix` and `ruff format` on staged files; CI
@@ -27,11 +27,14 @@ will reject anything that disagrees with what `ruff format` produces.
 
 ## Tests
 
-- **Offline tests** (`tests/`) — run in CI, no network. Cover pure helpers
-  (filters, slugify, MAF projection, clinical flattening, parquet round-trip).
-- **Integration ladder** (`scripts/verify.sh`) — hits the live GDC API.
-  Rungs are independent; gated by CLI args so a single failing rung doesn't
-  mask later coverage.
+- **Offline tests** (`tests/test_*.py` without `@pytest.mark.network`) — run
+  in CI on every push across the 3.10–3.13 matrix. Cover pure helpers,
+  schema parity (pandas vs polars), and synthetic-cohort recipe math.
+- **Network tests** (`@pytest.mark.network`) — hit the live GDC API for
+  metadata. Fast (<5 s), no downloads. Run by CI's `e2e` job.
+- **Download tests** (`@pytest.mark.download`) — pull a tiny live cohort
+  through the full pull → recipes pipeline and assert artefacts.
+  ~30 s wall, ~3 MB on the wire. Also run by CI's `e2e` job.
 
 Mark tests that need network or downloads:
 

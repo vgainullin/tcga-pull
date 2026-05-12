@@ -45,3 +45,17 @@ jobs:
       - run: uv sync --extra agent
       - name: pytest (offline only)
         run: uv run pytest -m "not network and not download"
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Hits the live GDC; runs after lint+test pass so we don't burn GDC traffic
+    # on commits that fail the cheap checks.
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --extra agent
+      - name: pytest (network + download against live GDC)
+        run: uv run pytest -m "network or download" -v
