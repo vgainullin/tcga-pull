@@ -19,12 +19,23 @@ Given a filter over the GDC catalogue, `tcga-pull`:
    `exposures`, …) into a tidy `clinical.parquet` (one row per case).
 5. Writes `manifest.parquet` (one row per file with `local_path` + provenance).
 
-A `variants` post-processing recipe walks the cohort's MAFs and produces a
-unified `variants.parquet` (~37 columns) with locus, gene/transcript,
-consequence, support, caller agreement, gnomAD/COSMIC/SIFT/PolyPhen
-annotations, and convenience flags (`is_coding`, `is_high_impact`,
-`is_rare`, `primary_aliquot`). Ready for analysis with pandas / DuckDB /
-Polars without any further wrangling.
+Post-processing **recipes** can be declared in the YAML and run as part of
+`pull`, so one command produces the whole cohort data product. Currently
+three recipes ship:
+
+- **variants** — walks the cohort's MAFs and writes `variants.parquet`
+  (~37 columns: locus, gene/transcript, consequence, support, caller
+  agreement, gnomAD/COSMIC/SIFT/PolyPhen, and flags `is_coding` /
+  `is_high_impact` / `is_rare` / `primary_aliquot`).
+- **samples** — joins clinical + variants into `samples.parquet` (one row
+  per case, with curated `lineage` tissue label and mutation burden).
+- **frequency** — emits `gene_frequency.parquet` and
+  `variant_frequency.parquet` with raw rate, vs-other-lineages, and
+  vs-gnomAD comparators side by side.
+
+Each recipe is also runnable standalone (`tcga-pull variants <dir>`,
+`tcga-pull samples <dir>`, `tcga-pull frequency <dir>`) for cohorts that
+weren't built with recipes declared.
 
 ## Reproducing the pancancer SNV cohort
 
@@ -92,11 +103,17 @@ tcga-pull pull examples/pancancer_snv.yaml --limit-per-project 20 --yes
 # Or from a YAML config
 tcga-pull pull cohort.yaml
 
-# Post-process: aggregate MAFs into a single variants table
-tcga-pull variants /path/to/cohort_dir
+# Post-processing recipes (also auto-runnable via the YAML `recipes:` section)
+tcga-pull variants  /path/to/cohort_dir            # one row per (variant x tumor aliquot)
+tcga-pull samples   /path/to/cohort_dir            # one row per case (lineage + burden)
+tcga-pull frequency /path/to/cohort_dir            # per-(gene|variant, tissue) tables
 
-# And then build a per-case table (demographics + lineage + burden)
-tcga-pull samples /path/to/cohort_dir
+# All recipes default to polars; --engine pandas keeps the reference path alive
+tcga-pull variants /path/to/cohort_dir --engine pandas
+
+# QC + bench
+tcga-pull validate-mafs /path/to/cohort_dir        # parse every .maf.gz, report drift
+tcga-pull bench         /path/to/cohort_dir        # pandas vs polars head-to-head
 
 # Conversational mode (needs OPENROUTER_API_KEY)
 tcga-pull agent
@@ -124,7 +141,7 @@ Column schemas, semantics, and stability promises live in [SCHEMAS.md](SCHEMAS.m
 
 ```yaml
 name: pancancer_snv
-out_dir: ./cohorts
+# out_dir is optional — defaults to ./cohorts; CLI --out overrides.
 filters:
   project:                 # any sugar field can be a list
     - TCGA-BRCA
@@ -134,26 +151,46 @@ filters:
   data_format: MAF
 # Or pass-through raw GDC filter:
 # gdc_filter: { op: "and", content: [ ... ] }
+
+# Optional: cap each project at N cases (deterministic submitter_id sort).
+# Useful for quick prototypes — the pancancer YAML at full size pulls 1.2 GB.
+limit:
+  per_project: 20
+
 download:
   n_processes: 4
+
+# Post-processing recipes that run after the pull completes, in order.
+# Omit to do a pull-only run; the canonical pancancer spec runs all three.
+recipes:
+  - variants
+  - samples
+  - frequency
 ```
+
+See [examples/pancancer_snv.yaml](examples/pancancer_snv.yaml) for the full
+55-project pancancer spec.
 
 ## Output layout
 
 ```
 cohorts/<name>/
-  clinical.parquet      # one row per case, demographic + diagnoses flattened
-  clinical_raw.jsonl    # full nested clinical records (lossless)
-  manifest.parquet      # one row per file: local_path, md5, size, data_*
-  manifest.tsv          # the input sent to gdc-client (provenance)
-  cohort.json           # resolved filter + counts + timestamps
-  variants.parquet      # (after `tcga-pull variants`) one row per somatic mutation
-  samples.parquet       # (after `tcga-pull samples`) one row per case, with burden
+  clinical.parquet            # one row per case, demographic + diagnoses flattened
+  clinical_raw.jsonl          # full nested clinical records (lossless)
+  manifest.parquet            # one row per file: local_path, md5, size, data_*
+  manifest.tsv                # the input sent to gdc-client (provenance)
+  cohort.json                 # resolved filter + counts + timestamps
+  variants.parquet            # one row per somatic mutation       (variants recipe)
+  samples.parquet             # one row per case, with burden       (samples recipe)
+  gene_frequency.parquet      # one row per (gene, tissue)          (frequency recipe)
+  variant_frequency.parquet   # one row per (variant, tissue)       (frequency recipe)
   data/
     <TCGA-XX-XXXX>/
       <data_category>/
         <file>
 ```
+
+Column-by-column schemas in [SCHEMAS.md](SCHEMAS.md).
 
 ## Scope
 
