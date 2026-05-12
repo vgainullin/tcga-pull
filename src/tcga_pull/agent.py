@@ -225,7 +225,7 @@ class AgentTools:
             f"Download {preview.n_files} files into {spec.cohort_dir}?", default=False
         ).ask():
             return {"status": "user_declined"}
-        cohort_dir = run_pipeline(spec, yes=True, console=self.console, client=self.gdc)
+        cohort_dir = run_pipeline(spec, console=self.console, client=self.gdc)
         return {"status": "ok", "cohort_dir": str(cohort_dir)}
 
 

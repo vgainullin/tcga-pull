@@ -127,11 +127,15 @@ def render_preview(p: Preview, console: Console | None = None) -> None:
 def run(
     spec: CohortSpec,
     *,
-    yes: bool = False,
     console: Console | None = None,
     client: GDCClient | None = None,
 ) -> Path:
-    """Full pipeline. Returns the cohort directory."""
+    """Full pipeline. Returns the cohort directory.
+
+    The preview table is rendered before any bytes move; user can Ctrl-C if
+    the resolved filter is wrong. Use `tcga-pull preview <yaml>` if you want
+    a true dry-run.
+    """
     console = console or Console()
     client = client or GDCClient()
 
@@ -142,13 +146,6 @@ def run(
     if preview.n_files == 0:
         console.print("[yellow]No files match. Refine the filter.[/yellow]")
         return spec.cohort_dir
-
-    if not yes:
-        import questionary
-
-        if not questionary.confirm("Proceed with download?", default=True).ask():
-            console.print("[yellow]Aborted.[/yellow]")
-            return spec.cohort_dir
 
     cohort_dir = spec.cohort_dir
     cohort_dir.mkdir(parents=True, exist_ok=True)

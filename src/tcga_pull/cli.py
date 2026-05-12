@@ -95,7 +95,6 @@ def pull(
     workflow: list[str] | None = typer.Option(None, "--workflow"),
     sample_type: list[str] | None = typer.Option(None, "--sample-type"),
     n_processes: int = typer.Option(4, "--n-processes", "-n"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip download confirmation."),
     limit_per_project: int | None = typer.Option(
         None,
         "--limit-per-project",
@@ -120,7 +119,7 @@ def pull(
     # CLI flag overrides any YAML limit
     if limit_per_project is not None:
         spec.limit.per_project = limit_per_project
-    pipeline.run(spec, yes=yes, console=console)
+    pipeline.run(spec, console=console)
 
 
 @app.command()

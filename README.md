@@ -46,7 +46,7 @@ MAFs, ~4.1 M variants) plus the post-processing recipes that build
 rebuilds the whole thing:
 
 ```sh
-tcga-pull pull examples/pancancer_snv.yaml --yes
+tcga-pull pull examples/pancancer_snv.yaml
 ```
 
 Resumable: a killed `pull` picks up from `_downloads/` on restart. Expected
@@ -98,7 +98,7 @@ tcga-pull pull --projects-file projects.txt \
                --data-category "Simple Nucleotide Variation" --data-format MAF
 
 # Cap per project for quick prototypes (also available in YAML as `limit.per_project`)
-tcga-pull pull examples/pancancer_snv.yaml --limit-per-project 20 --yes
+tcga-pull pull examples/pancancer_snv.yaml --limit-per-project 20
 
 # Or from a YAML config
 tcga-pull pull cohort.yaml

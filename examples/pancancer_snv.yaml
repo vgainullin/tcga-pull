@@ -6,7 +6,7 @@
 #
 # Reproduce end-to-end with one command:
 #
-#     tcga-pull pull examples/pancancer_snv.yaml --yes
+#     tcga-pull pull examples/pancancer_snv.yaml
 #
 # `pull` honours the `recipes:` section below and runs them after the
 # download finishes, so the final cohort dir holds clinical.parquet,

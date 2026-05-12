@@ -84,7 +84,7 @@ def test_pull_with_recipes_end_to_end(tmp_path: Path):
     # Silence the pull's Rich output during the test
     import io
 
-    pipeline_run(spec, yes=True, console=Console(file=io.StringIO()))
+    pipeline_run(spec, console=Console(file=io.StringIO()))
 
     cohort = load_cohort(tmp_path / "ci_tiny")
 
