@@ -96,9 +96,21 @@ def build_samples_from_frames(
             ).round(2)
         )
 
-    # OncoTree columns reserved as nulls
-    for col in ("oncotree_code", "oncotree_main_type", "oncotree_tissue"):
-        clin = clin.with_columns(**{col: pl.lit(None).cast(pl.Utf8)})
+    # OncoTree crosswalk from project_id
+    from .oncotree import oncotree_for
+
+    project_ids = clin["project_id"].to_list() if "project_id" in clin.columns else []
+    onco_nodes = [oncotree_for(p) for p in project_ids]
+    clin = clin.with_columns(
+        oncotree_code=pl.Series([n.code if n else None for n in onco_nodes], dtype=pl.Utf8),
+        oncotree_name=pl.Series([n.name if n else None for n in onco_nodes], dtype=pl.Utf8),
+        oncotree_main_type=pl.Series(
+            [n.main_type if n else None for n in onco_nodes], dtype=pl.Utf8
+        ),
+        oncotree_tissue=pl.Series(
+            [n.tissue if n else None for n in onco_nodes], dtype=pl.Utf8
+        ),
+    )
 
     pair_structure = _per_case_pair_structure(variants)
     burden = _per_case_burden(variants)

@@ -152,8 +152,11 @@ def test_build_samples_end_to_end():
     assert c1["n_variants_total"] == 4
     assert c1["n_variants_coding"] == 3
     assert c1["n_variants_high_impact"] == 2
-    # OncoTree fields reserved as nulls
-    assert pd.isna(c1["oncotree_code"])
+    # OncoTree crosswalk from project_id (TCGA-BRCA → BRCA)
+    assert c1["oncotree_code"] == "BRCA"
+    assert c1["oncotree_name"] == "Invasive Breast Carcinoma"
+    assert c1["oncotree_main_type"] == "Breast Cancer"
+    assert c1["oncotree_tissue"] == "Breast"
 
     c2 = s[s["case_id"] == "c2"].iloc[0]
     # c2 has no variants — burden zeros, barcodes null

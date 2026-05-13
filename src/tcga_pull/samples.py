@@ -6,9 +6,9 @@ Schema:
     case_id, submitter_id, project_id, program
     # raw GDC labels (kept for traceability)
     primary_site, disease_type, primary_diagnosis
-    # lineage (oncotree_* are reserved nulls; populated when the curated
-    # crosswalk lands. `lineage` defaults to project_id for now.)
-    lineage, oncotree_code, oncotree_main_type, oncotree_tissue
+    # lineage (`lineage` = curated tissue label; `oncotree_*` = MSKCC OncoTree
+    # crosswalk from project_id, see oncotree.py)
+    lineage, oncotree_code, oncotree_name, oncotree_main_type, oncotree_tissue
     # demographics
     gender, race, ethnicity, age_at_diagnosis_days, age_at_diagnosis_years,
     vital_status, days_to_death, days_to_last_followup, ajcc_pathologic_stage
@@ -60,6 +60,7 @@ OUTPUT_COLUMN_ORDER: list[str] = [
     # lineage
     "lineage",
     "oncotree_code",
+    "oncotree_name",
     "oncotree_main_type",
     "oncotree_tissue",
     # demographics
@@ -181,9 +182,14 @@ def build_samples_from_frames(
         days = pd.to_numeric(clin["age_at_diagnosis_days"], errors="coerce")
         clin["age_at_diagnosis_years"] = (days / 365.25).round(2)
 
-    # OncoTree columns reserved as nulls (will be filled by lineage.py later)
-    for col in ("oncotree_code", "oncotree_main_type", "oncotree_tissue"):
-        clin[col] = pd.Series([pd.NA] * len(clin), dtype="object")
+    # OncoTree crosswalk from project_id
+    from .oncotree import oncotree_for
+
+    onco_nodes = [oncotree_for(p) for p in clin.get("project_id", [])]
+    clin["oncotree_code"] = [n.code if n else None for n in onco_nodes]
+    clin["oncotree_name"] = [n.name if n else None for n in onco_nodes]
+    clin["oncotree_main_type"] = [n.main_type if n else None for n in onco_nodes]
+    clin["oncotree_tissue"] = [n.tissue if n else None for n in onco_nodes]
 
     # Join variant-derived aggregates
     pair_structure = _per_case_pair_structure(variants)

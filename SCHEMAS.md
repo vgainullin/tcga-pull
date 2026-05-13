@@ -85,9 +85,12 @@ identifiers + raw GDC labels:
 
 curated lineage:
   lineage             — tissue label (breast, lung, pancreas, …); see src/tcga_pull/tissue.py
-  oncotree_code       — reserved null; populated when OncoTree crosswalk lands
-  oncotree_main_type  — reserved null
-  oncotree_tissue     — reserved null
+  oncotree_code       — MSKCC OncoTree code, e.g. BRCA, LUAD, AML; see src/tcga_pull/oncotree.py
+  oncotree_name       — OncoTree diagnosis name, e.g. "Invasive Breast Carcinoma"
+  oncotree_main_type  — OncoTree mainType, e.g. "Breast Cancer", "Non-Small Cell Lung Cancer"
+  oncotree_tissue     — OncoTree tissue group, e.g. "Breast", "Lung"
+                        Heterogeneous projects (CPTAC, HCMI, EXCEPTIONAL_RESPONDERS) → "OTHER".
+                        Projects outside the curated map → all four columns null.
 
 demographics:
   gender, race, ethnicity
@@ -226,5 +229,7 @@ file is enough to re-pull the same cohort (idempotent up to GDC data releases).
   major-version.
 - **Lineage values** in `samples.parquet` (the strings `breast`, `lung`, …)
   may grow when OncoTree integration lands but won't be renamed.
-- **`oncotree_*` columns** are currently all null, reserved for the eventual
-  OncoTree crosswalk. Downstream code should treat them as Optional[Utf8].
+- **`oncotree_*` columns** are populated from a pinned OncoTree snapshot
+  (`src/tcga_pull/data/oncotree_2025_10_03.json`). Bumping the snapshot is a
+  minor-version change; the column set is stable. Codes may change between
+  OncoTree versions — treat the column type as Optional[Utf8].

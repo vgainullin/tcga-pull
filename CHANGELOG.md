@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tcga-pull install-gdc-client` — downloads the official NCI binary, verifies
   against pinned per-platform MD5, drops it in `~/.local/bin/`. Replaces the
   micromamba-based install instructions in the README.
+- OncoTree crosswalk (`tcga_pull.oncotree`): GDC project_id → MSKCC OncoTree
+  code/name/mainType/tissue. Bundles the `oncotree_2025_10_03` snapshot
+  (898 codes) and a curated 55-project mapping. Validates at import that every
+  mapped code exists in the snapshot. The `oncotree_*` columns on
+  `samples.parquet` are no longer null placeholders — they're populated from
+  the crosswalk. Heterogeneous projects (CPTAC, HCMI) map to `OTHER`.
 
 ## [0.1.2] — 2026-05-12
 
