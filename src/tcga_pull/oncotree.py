@@ -126,8 +126,7 @@ def _validate() -> None:
     missing = {p: c for p, c in PROJECT_TO_ONCOTREE.items() if c not in codes}
     if missing:
         raise RuntimeError(
-            f"OncoTree codes in PROJECT_TO_ONCOTREE not found in {_DATA_FILE}: "
-            f"{missing}"
+            f"OncoTree codes in PROJECT_TO_ONCOTREE not found in {_DATA_FILE}: {missing}"
         )
 
 

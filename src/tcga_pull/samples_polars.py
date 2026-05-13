@@ -107,9 +107,7 @@ def build_samples_from_frames(
         oncotree_main_type=pl.Series(
             [n.main_type if n else None for n in onco_nodes], dtype=pl.Utf8
         ),
-        oncotree_tissue=pl.Series(
-            [n.tissue if n else None for n in onco_nodes], dtype=pl.Utf8
-        ),
+        oncotree_tissue=pl.Series([n.tissue if n else None for n in onco_nodes], dtype=pl.Utf8),
     )
 
     pair_structure = _per_case_pair_structure(variants)

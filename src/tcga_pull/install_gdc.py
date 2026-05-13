@@ -88,9 +88,7 @@ def install_gdc_client(dest_dir: Path, *, force: bool = False) -> Path:
     dest = dest_dir / binary_name
 
     if dest.exists() and not force:
-        raise InstallError(
-            f"{dest} already exists. Pass force=True (or --force) to overwrite."
-        )
+        raise InstallError(f"{dest} already exists. Pass force=True (or --force) to overwrite.")
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 
