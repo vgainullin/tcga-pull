@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import pipeline
-from .config import from_flags, load_yaml, read_projects_file
-from .gdc import GDCClient
+from . import pipeline, services
 
 app = typer.Typer(
     name="tcga-pull",
@@ -36,38 +33,29 @@ def _spec_from_args(
     workflow: list[str] | None,
     sample_type: list[str] | None,
     n_processes: int,
+    limit_per_project: int | None = None,
 ):
-    if config:
-        return load_yaml(config, out_dir_override=out)
-
-    # Merge --project (repeatable) with --projects-file (newline-separated)
-    projects: list[str] = list(project or [])
-    if projects_file is not None:
-        projects.extend(read_projects_file(projects_file))
-    # de-dupe while preserving order
-    projects = list(dict.fromkeys(projects))
-
-    if not projects:
-        console.print(
-            "[yellow]Need either a YAML config, --project, or --projects-file. "
-            "Try `tcga-pull projects` to list available projects.[/yellow]"
+    try:
+        return services.build_cohort_spec(
+            services.CohortBuildOptions(
+                config=config,
+                name=name,
+                out=out,
+                project=project,
+                projects_file=projects_file,
+                data_type=data_type,
+                data_category=data_category,
+                data_format=data_format,
+                experimental_strategy=experimental_strategy,
+                workflow=workflow,
+                sample_type=sample_type,
+                n_processes=n_processes,
+                limit_per_project=limit_per_project,
+            )
         )
-        raise typer.Exit(2)
-    cohort_name = name or _default_name(projects, data_type)
-    # `out` falls back to ./cohorts when not provided (flag mode only)
-    effective_out = (out or Path("./cohorts")).expanduser().resolve()
-    return from_flags(
-        name=cohort_name,
-        out_dir=effective_out,
-        project=projects,
-        data_type=data_type,
-        data_category=data_category,
-        data_format=data_format,
-        experimental_strategy=experimental_strategy,
-        workflow=workflow,
-        sample_type=sample_type,
-        n_processes=n_processes,
-    )
+    except services.SpecBuildError as e:
+        console.print(f"[yellow]{e}[/yellow]")
+        raise typer.Exit(2) from None
 
 
 @app.command()
@@ -115,11 +103,9 @@ def pull(
         workflow=workflow,
         sample_type=sample_type,
         n_processes=n_processes,
+        limit_per_project=limit_per_project,
     )
-    # CLI flag overrides any YAML limit
-    if limit_per_project is not None:
-        spec.limit.per_project = limit_per_project
-    pipeline.run(spec, console=console)
+    services.run_cohort(spec, console=console)
 
 
 @app.command()
@@ -149,15 +135,14 @@ def preview(
         sample_type=sample_type,
         n_processes=4,
     )
-    p = pipeline.fetch_preview(spec)
+    p = services.preview_cohort(spec)
     pipeline.render_preview(p, console=console)
 
 
 @app.command()
 def projects(program: str = typer.Option("TCGA", "--program")) -> None:
     """List GDC projects (default: TCGA)."""
-    client = GDCClient()
-    rows = client.list_projects(program=program)
+    rows = services.list_projects(program=program)
     t = Table(title=f"Projects in {program}")
     t.add_column("project_id")
     t.add_column("name")
@@ -181,30 +166,20 @@ def agent(
     run_agent(query=query, out=out, console=console)
 
 
-def _resolve_variants_engine(engine: str) -> Callable[[Path], Path]:
-    if engine == "polars":
-        from .variants_polars import write_variants
-
-        return write_variants
-    if engine == "pandas":
-        from .variants import write_variants
-
-        return write_variants
-    console.print(f"[red]unknown engine: {engine!r} (use 'polars' or 'pandas')[/red]")
-    raise typer.Exit(2)
+def _resolve_variants_engine(engine: str):
+    try:
+        return services.resolve_variants_writer(engine)
+    except ValueError:
+        console.print(f"[red]unknown engine: {engine!r} (use 'polars' or 'pandas')[/red]")
+        raise typer.Exit(2) from None
 
 
-def _resolve_samples_engine(engine: str) -> Callable[[Path], Path]:
-    if engine == "polars":
-        from .samples_polars import write_samples
-
-        return write_samples
-    if engine == "pandas":
-        from .samples import write_samples
-
-        return write_samples
-    console.print(f"[red]unknown engine: {engine!r} (use 'polars' or 'pandas')[/red]")
-    raise typer.Exit(2)
+def _resolve_samples_engine(engine: str):
+    try:
+        return services.resolve_samples_writer(engine)
+    except ValueError:
+        console.print(f"[red]unknown engine: {engine!r} (use 'polars' or 'pandas')[/red]")
+        raise typer.Exit(2) from None
 
 
 @app.command()
@@ -222,8 +197,8 @@ def variants(
     """Aggregate per-case MAFs into <cohort>/variants.parquet (one row per variant)."""
     import polars as pl
 
-    write_variants = _resolve_variants_engine(engine)
-    out = write_variants(cohort_dir)
+    _resolve_variants_engine(engine)
+    out = services.write_variants_recipe(cohort_dir, engine=engine).path
     df = pl.read_parquet(out)
     console.print(
         f"[green]wrote[/green] {out}  ({len(df):,} variants x {df.width} cols, engine={engine})"
@@ -249,8 +224,8 @@ def samples(
     """Build per-case samples.parquet (demographics + lineage + burden)."""
     import polars as pl
 
-    write_samples = _resolve_samples_engine(engine)
-    out = write_samples(cohort_dir)
+    _resolve_samples_engine(engine)
+    out = services.write_samples_recipe(cohort_dir, engine=engine).path
     df = pl.read_parquet(out)
     console.print(
         f"[green]wrote[/green] {out}  ({len(df):,} cases x {df.width} cols, engine={engine})"
@@ -286,10 +261,9 @@ def frequency_cmd(
     vs-other-lineages, and vs-gnomAD comparators side by side."""
     import polars as pl
 
-    from .frequency import write_gene_frequency, write_variant_frequency
-
-    gp = write_gene_frequency(cohort_dir)
-    vp = write_variant_frequency(cohort_dir)
+    outputs = services.write_frequency_recipe(cohort_dir)
+    gp = outputs.gene_frequency
+    vp = outputs.variant_frequency
     gf = pl.read_parquet(gp)
     vf = pl.read_parquet(vp)
     console.print(
@@ -454,17 +428,6 @@ def validate_mafs_cmd(
     render_report(report, console=console)
     if report.files_failed or report.missing_required_columns:
         raise typer.Exit(1)
-
-
-def _default_name(project: list[str], data_type: list[str] | None) -> str:
-    if len(project) == 1:
-        p = project[0].lower().replace("tcga-", "")
-    else:
-        p = f"multi_{len(project)}_projects"
-    if data_type:
-        dt = data_type[0].lower().replace(" ", "_")
-        return f"{p}_{dt}"
-    return p
 
 
 if __name__ == "__main__":
