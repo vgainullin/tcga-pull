@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from tcga_pull.config import CohortSpec, LimitSpec
+from tcga_pull.gdc import GDCClient
+from tcga_pull.pipeline import Preview
 from tcga_pull.services import (
     CohortBuildOptions,
     SpecBuildError,
@@ -14,6 +18,8 @@ from tcga_pull.services import (
     list_projects,
     resolve_samples_writer,
     resolve_variants_writer,
+    write_manifest_for_spec,
+    write_manifest_from_preview,
 )
 
 
@@ -104,6 +110,78 @@ def test_list_projects_sorts_by_project_id():
         None,
         "TCGA-BRCA",
         "TCGA-LUAD",
+    ]
+
+
+def _file_hit(file_id: str, submitter: str, project: str) -> dict:
+    return {
+        "file_id": file_id,
+        "file_name": f"{file_id}.maf.gz",
+        "md5sum": f"md5-{file_id}",
+        "file_size": 123,
+        "cases": [
+            {
+                "case_id": f"case-{submitter}",
+                "submitter_id": submitter,
+                "project": {"project_id": project},
+            }
+        ],
+    }
+
+
+def test_write_manifest_from_preview_writes_tsv(tmp_path: Path):
+    spec = CohortSpec(name="manifest_test", out_dir=tmp_path)
+    preview = Preview(
+        spec=spec,
+        resolved_filter={"op": "and", "content": []},
+        n_files=2,
+        n_cases=2,
+        file_hits=[
+            _file_hit("file-a", "S1", "TCGA-BRCA"),
+            _file_hit("file-b", "S2", "TCGA-BRCA"),
+        ],
+        total_size=246,
+    )
+
+    out = write_manifest_from_preview(preview)
+
+    assert out.path == tmp_path / "manifest_test" / "manifest.tsv"
+    assert out.n_files == 2
+    assert out.n_cases == 2
+    assert out.total_size == 246
+    assert out.path.read_text().splitlines() == [
+        "id\tfilename\tmd5\tsize\tstate",
+        "file-a\tfile-a.maf.gz\tmd5-file-a\t123\tvalidated",
+        "file-b\tfile-b.maf.gz\tmd5-file-b\t123\tvalidated",
+    ]
+
+
+def test_write_manifest_for_spec_previews_applies_limit_and_writes_manifest(tmp_path: Path):
+    class FakeClient:
+        def fetch_files(self, flt: dict) -> list[dict]:
+            assert flt["op"] == "and"
+            return [
+                _file_hit("file-b", "S2", "TCGA-BRCA"),
+                _file_hit("file-a", "S1", "TCGA-BRCA"),
+            ]
+
+    spec = CohortSpec(
+        name="limited_manifest",
+        out_dir=tmp_path,
+        filters={"project": ["TCGA-BRCA"]},
+        limit=LimitSpec(per_project=1),
+    )
+
+    out = write_manifest_for_spec(spec, client=cast(GDCClient, FakeClient()))
+
+    assert out.path == tmp_path / "limited_manifest" / "manifest.tsv"
+    assert out.n_files == 1
+    assert out.n_cases == 1
+    assert out.total_size == 123
+    lines = out.path.read_text().splitlines()
+    assert lines == [
+        "id\tfilename\tmd5\tsize\tstate",
+        "file-a\tfile-a.maf.gz\tmd5-file-a\t123\tvalidated",
     ]
 
 

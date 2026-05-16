@@ -16,6 +16,7 @@ from rich.console import Console
 from . import pipeline
 from .api import load_cohort
 from .config import CohortSpec, LimitSpec, from_flags, load_yaml, read_projects_file
+from .download import write_manifest_tsv
 from .gdc import GDCClient
 
 
@@ -64,6 +65,16 @@ class FrequencyOutputs:
 
     gene_frequency: Path
     variant_frequency: Path
+
+
+@dataclass(frozen=True)
+class ManifestOutput:
+    """Result of writing a GDC manifest from a cohort preview."""
+
+    path: Path
+    n_files: int
+    n_cases: int
+    total_size: int
 
 
 def build_cohort_spec(options: CohortBuildOptions) -> CohortSpec:
@@ -132,6 +143,31 @@ def run_cohort(
     client: GDCClient | None = None,
 ) -> Path:
     return pipeline.run(spec, console=console, client=client)
+
+
+def write_manifest_from_preview(
+    preview: pipeline.Preview,
+    *,
+    path: Path | None = None,
+) -> ManifestOutput:
+    manifest_path = path or preview.spec.cohort_dir / "manifest.tsv"
+    n_files = write_manifest_tsv(preview.file_hits, manifest_path)
+    return ManifestOutput(
+        path=manifest_path,
+        n_files=n_files,
+        n_cases=preview.n_cases,
+        total_size=preview.total_size,
+    )
+
+
+def write_manifest_for_spec(
+    spec: CohortSpec,
+    *,
+    path: Path | None = None,
+    client: GDCClient | None = None,
+) -> ManifestOutput:
+    preview = preview_cohort(spec, client=client)
+    return write_manifest_from_preview(preview, path=path)
 
 
 def list_projects(
