@@ -71,6 +71,17 @@ def test_build_cohort_spec_requires_project_when_not_loading_yaml():
         build_cohort_spec(CohortBuildOptions())
 
 
+def test_build_cohort_spec_rejects_non_positive_limit_override(tmp_path: Path):
+    with pytest.raises(SpecBuildError, match="must be > 0"):
+        build_cohort_spec(
+            CohortBuildOptions(
+                project=["TCGA-BRCA"],
+                out=tmp_path,
+                limit_per_project=0,
+            )
+        )
+
+
 def test_default_cohort_name_matches_existing_cli_behavior():
     assert default_cohort_name(["TCGA-BRCA"], None) == "brca"
     assert default_cohort_name(["TCGA-BRCA"], ["Gene Expression Quantification"]) == (

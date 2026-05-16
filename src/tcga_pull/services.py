@@ -15,7 +15,7 @@ from rich.console import Console
 
 from . import pipeline
 from .api import load_cohort
-from .config import CohortSpec, from_flags, load_yaml, read_projects_file
+from .config import CohortSpec, LimitSpec, from_flags, load_yaml, read_projects_file
 from .gdc import GDCClient
 
 
@@ -99,7 +99,10 @@ def build_cohort_spec(options: CohortBuildOptions) -> CohortSpec:
         )
 
     if options.limit_per_project is not None:
-        spec.limit.per_project = options.limit_per_project
+        try:
+            spec.limit = LimitSpec(per_project=options.limit_per_project)
+        except ValueError as e:
+            raise SpecBuildError(str(e)) from e
     return spec
 
 
