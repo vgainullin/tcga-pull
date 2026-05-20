@@ -38,6 +38,12 @@ class Cohort:
     Optional files (returned as `None` if missing):
       - gene_frequency.parquet
       - variant_frequency.parquet
+      - rna_expression.parquet
+      - mirna_expression.parquet
+      - methylation_beta.parquet
+      - copy_number_segments.parquet
+      - gene_copy_number.parquet
+      - protein_expression.parquet
       - cohort.json    (provenance sidecar)
     """
 
@@ -91,6 +97,30 @@ class Cohort:
         """One row per (variant, lineage). Produced by `tcga-pull frequency`."""
         return self._read_optional("variant_frequency.parquet")
 
+    @cached_property
+    def rna_expression(self) -> pl.DataFrame | None:
+        return self._read_optional("rna_expression.parquet")
+
+    @cached_property
+    def mirna_expression(self) -> pl.DataFrame | None:
+        return self._read_optional("mirna_expression.parquet")
+
+    @cached_property
+    def methylation_beta(self) -> pl.DataFrame | None:
+        return self._read_optional("methylation_beta.parquet")
+
+    @cached_property
+    def copy_number_segments(self) -> pl.DataFrame | None:
+        return self._read_optional("copy_number_segments.parquet")
+
+    @cached_property
+    def gene_copy_number(self) -> pl.DataFrame | None:
+        return self._read_optional("gene_copy_number.parquet")
+
+    @cached_property
+    def protein_expression(self) -> pl.DataFrame | None:
+        return self._read_optional("protein_expression.parquet")
+
     # --- provenance ------------------------------------------------------------
 
     @cached_property
@@ -110,7 +140,16 @@ class Cohort:
                 out[f"n_{attr}"] = len(df)
             except FileNotFoundError:
                 out[f"n_{attr}"] = 0
-        for opt in ("gene_frequency", "variant_frequency"):
+        for opt in (
+            "gene_frequency",
+            "variant_frequency",
+            "rna_expression",
+            "mirna_expression",
+            "methylation_beta",
+            "copy_number_segments",
+            "gene_copy_number",
+            "protein_expression",
+        ):
             df = getattr(self, opt)
             out[f"n_{opt}"] = len(df) if df is not None else 0
         return out

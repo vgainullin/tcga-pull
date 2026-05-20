@@ -231,11 +231,53 @@ def _recipe_frequency(cohort_dir: Path) -> None:
     write_variant_frequency(cohort_dir)
 
 
+def _recipe_rna_expression(cohort_dir: Path) -> None:
+    from .multiomics import write_rna_expression
+
+    write_rna_expression(cohort_dir)
+
+
+def _recipe_mirna_expression(cohort_dir: Path) -> None:
+    from .multiomics import write_mirna_expression
+
+    write_mirna_expression(cohort_dir)
+
+
+def _recipe_methylation(cohort_dir: Path) -> None:
+    from .multiomics import write_methylation_beta
+
+    write_methylation_beta(cohort_dir)
+
+
+def _recipe_copy_number(cohort_dir: Path) -> None:
+    from .multiomics import write_copy_number
+
+    write_copy_number(cohort_dir)
+
+
+def _recipe_protein_expression(cohort_dir: Path) -> None:
+    from .multiomics import write_protein_expression
+
+    write_protein_expression(cohort_dir)
+
+
+def _recipe_multiomics(cohort_dir: Path) -> None:
+    from .multiomics import write_multiomics
+
+    write_multiomics(cohort_dir)
+
+
 # Name → function. Names must match KNOWN_RECIPES in config.py.
 RECIPE_REGISTRY: dict[str, Callable[[Path], None]] = {
     "variants": _recipe_variants,
     "samples": _recipe_samples,
     "frequency": _recipe_frequency,
+    "rna_expression": _recipe_rna_expression,
+    "mirna_expression": _recipe_mirna_expression,
+    "methylation": _recipe_methylation,
+    "copy_number": _recipe_copy_number,
+    "protein_expression": _recipe_protein_expression,
+    "multiomics": _recipe_multiomics,
 }
 
 

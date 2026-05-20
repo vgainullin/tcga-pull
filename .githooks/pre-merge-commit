@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+
+case "$branch" in
+  feature/*|bugfix/*)
+    exit 0
+    ;;
+esac
+
+cat >&2 <<EOF
+Merge blocked.
+
+Merge commits are only allowed while checked out on branches named:
+  feature/*
+  bugfix/*
+
+Current branch: ${branch:-detached HEAD}
+
+Switch to a feature/* or bugfix/* branch before merging.
+EOF
+
+exit 1

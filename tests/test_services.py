@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from tcga_pull.config import CohortSpec, LimitSpec
+from tcga_pull.config import CohortSpec, LimitSpec, OptionalOmicsSpec
 from tcga_pull.gdc import GDCClient
 from tcga_pull.pipeline import Preview
 from tcga_pull.services import (
@@ -18,6 +18,7 @@ from tcga_pull.services import (
     list_projects,
     resolve_samples_writer,
     resolve_variants_writer,
+    select_optional_omics,
     write_manifest_for_spec,
     write_manifest_from_preview,
 )
@@ -86,6 +87,36 @@ def test_build_cohort_spec_rejects_non_positive_limit_override(tmp_path: Path):
                 limit_per_project=0,
             )
         )
+
+
+def test_select_optional_omics_returns_concrete_spec(tmp_path: Path):
+    spec = CohortSpec(
+        name="pancancer_snv",
+        out_dir=tmp_path,
+        filters={"project": ["TCGA-BRCA"]},
+        optional_omics=[
+            OptionalOmicsSpec(
+                name="rna",
+                filters={"data_category": "Transcriptome Profiling"},
+            )
+        ],
+    )
+
+    omics = select_optional_omics(spec, "rna")
+
+    assert omics.name == "pancancer_snv__rna"
+    assert omics.out_dir == tmp_path
+    assert omics.filters == {
+        "project": ["TCGA-BRCA"],
+        "data_category": "Transcriptome Profiling",
+    }
+
+
+def test_select_optional_omics_rejects_unknown_name(tmp_path: Path):
+    spec = CohortSpec(name="x", out_dir=tmp_path)
+
+    with pytest.raises(SpecBuildError, match="unknown optional omics"):
+        select_optional_omics(spec, "rna")
 
 
 def test_default_cohort_name_matches_existing_cli_behavior():

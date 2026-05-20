@@ -15,11 +15,35 @@ cohort/
   variants.parquet           # one row per (variant × tumor aliquot)
   gene_frequency.parquet     # optional: one row per (gene × tissue)
   variant_frequency.parquet  # optional: one row per (variant × tissue)
+  rna_expression.parquet     # optional: one row per (case × gene)
+  mirna_expression.parquet   # optional: one row per (case × miRNA)
+  methylation_beta.parquet   # optional: one row per (case × methylation probe)
+  copy_number_segments.parquet # optional: one row per CNV segment
+  gene_copy_number.parquet   # optional: one row per (case × gene CNV)
+  protein_expression.parquet # optional: one row per (case × RPPA target)
   cohort.json                # resolved filter + counts + timestamp
   data/<submitter_id>/<data_category>/<file>   # raw downloaded files
 ```
 
 For the Python API: `from tcga_pull import load_cohort`.
+
+Multiomics recipe outputs all include these provenance columns:
+
+```
+case_id, submitter_id, file_id, file_name, data_type,
+experimental_strategy, workflow_type
+```
+
+Additional columns:
+
+| parquet | additional columns |
+|---|---|
+| `rna_expression.parquet` | `gene_id`, `gene_name`, `gene_type`, `unstranded`, `stranded_first`, `stranded_second`, `tpm_unstranded`, `fpkm_unstranded`, `fpkm_uq_unstranded` |
+| `mirna_expression.parquet` | `mirna_id`, `read_count`, `reads_per_million_mirna_mapped`, `cross_mapped` |
+| `methylation_beta.parquet` | `probe_id`, `beta_value` |
+| `copy_number_segments.parquet` | `cnv_type`, `sample`, `chrom`, `start`, `end`, `num_probes`, `segment_mean` |
+| `gene_copy_number.parquet` | `gene_id`, `gene_name`, `chrom`, `start`, `end`, `copy_number` |
+| `protein_expression.parquet` | `protein_id`, `gene_symbol`, `antibody`, `expression_value` |
 
 ---
 

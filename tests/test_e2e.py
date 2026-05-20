@@ -142,3 +142,85 @@ def test_pull_with_recipes_end_to_end(tmp_path: Path):
     prov = cohort.provenance
     assert "filter" in prov
     assert prov["n_files"] >= 3
+
+
+@pytest.mark.download
+def test_pull_multiomics_smoke_end_to_end(tmp_path: Path):
+    """Tiny live-GDC smoke test for multiomics processing recipes.
+
+    The config is generated in tmp_path, not checked into examples. CHOL has
+    small SNV/RNA/CNV/methylation coverage, and per_project=1 keeps the
+    download bounded for CI.
+    """
+    yaml_path = tmp_path / "ci_multiomics_smoke.yaml"
+    yaml_path.write_text(
+        "name: ci_multiomics_smoke\n"
+        "filters:\n"
+        "  project: TCGA-CHOL\n"
+        "limit:\n"
+        "  per_project: 1\n"
+        "recipes:\n"
+        "  - variants\n"
+        "  - samples\n"
+        "  - multiomics\n"
+        "gdc_filter:\n"
+        "  op: and\n"
+        "  content:\n"
+        "    - op: in\n"
+        "      content:\n"
+        "        field: cases.project.project_id\n"
+        "        value: [TCGA-CHOL]\n"
+        "    - op: or\n"
+        "      content:\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [Simple Nucleotide Variation]}\n"
+        "            - op: in\n"
+        "              content: {field: data_format, value: [MAF]}\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [Transcriptome Profiling]}\n"
+        "            - op: in\n"
+        "              content: {field: data_type, value: [Gene Expression Quantification]}\n"
+        "            - op: in\n"
+        "              content: {field: experimental_strategy, value: [RNA-Seq]}\n"
+        "            - op: in\n"
+        "              content: {field: analysis.workflow_type, value: [STAR - Counts]}\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [Copy Number Variation]}\n"
+        "            - op: in\n"
+        "              content: {field: data_type, value: [Copy Number Segment]}\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [DNA Methylation]}\n"
+        "            - op: in\n"
+        "              content: {field: data_type, value: [Methylation Beta Value]}\n"
+    )
+    spec = load_yaml(yaml_path, out_dir_override=tmp_path)
+
+    import io
+
+    pipeline_run(spec, console=Console(file=io.StringIO()))
+    cohort = load_cohort(tmp_path / "ci_multiomics_smoke")
+
+    assert len(cohort.variants) > 0
+    assert len(cohort.samples) >= 1
+    assert cohort.rna_expression is not None
+    assert cohort.copy_number_segments is not None
+    assert cohort.methylation_beta is not None
+
+    assert len(cohort.rna_expression) > 0
+    assert len(cohort.copy_number_segments) > 0
+    assert len(cohort.methylation_beta) > 0
+
+    for col in ("case_id", "submitter_id", "gene_id", "unstranded"):
+        assert col in cohort.rna_expression.columns
+    for col in ("case_id", "submitter_id", "chrom", "segment_mean"):
+        assert col in cohort.copy_number_segments.columns
+    for col in ("case_id", "submitter_id", "probe_id", "beta_value"):
+        assert col in cohort.methylation_beta.columns
