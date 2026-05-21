@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import pyarrow as pa
@@ -219,7 +219,7 @@ def _read_table(path: Path) -> pd.DataFrame:
         df = pd.read_csv(path, sep="\t", comment="#", dtype=str, engine="python")
     df = df.dropna(axis=1, how="all")
     df.columns = [_normalize_col(c) for c in df.columns]
-    return df
+    return cast(pd.DataFrame, df)
 
 
 def _normalize_col(value: object) -> str:
@@ -340,7 +340,7 @@ def _text(df: pd.DataFrame, *aliases: str) -> pd.Series:
     col = _first_col(df, aliases)
     if col is None:
         return pd.Series([None] * len(df), index=df.index, dtype="object")
-    return df[col].where(df[col].notna(), None)
+    return cast(pd.Series, df[col].where(df[col].notna(), None))
 
 
 def _int(df: pd.DataFrame, *aliases: str) -> pd.Series:
@@ -369,7 +369,7 @@ def _select_schema(df: pd.DataFrame, schema: pa.Schema) -> pd.DataFrame:
     for field in schema:
         if field.name not in df.columns:
             df[field.name] = pd.NA
-    return df[[field.name for field in schema]]
+    return cast(pd.DataFrame, df[[field.name for field in schema]])
 
 
 def _empty_df(schema: pa.Schema) -> pd.DataFrame:
