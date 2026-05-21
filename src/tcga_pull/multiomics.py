@@ -150,7 +150,9 @@ def write_copy_number(cohort_dir: Path) -> tuple[Path, Path]:
 
     segments_out = cohort_dir / "copy_number_segments.parquet"
     gene_out = cohort_dir / "gene_copy_number.parquet"
-    _write_stream(segments_out, (_cnv_segment_frame(row) for row in segment_rows), CNV_SEGMENT_SCHEMA)
+    _write_stream(
+        segments_out, (_cnv_segment_frame(row) for row in segment_rows), CNV_SEGMENT_SCHEMA
+    )
     _write_stream(gene_out, (_gene_cnv_frame(row) for row in gene_rows), GENE_CNV_SCHEMA)
     return segments_out, gene_out
 

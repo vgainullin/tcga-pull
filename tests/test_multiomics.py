@@ -34,8 +34,7 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
     )
     methylation_path = _write(
         data / "dna_methylation" / "meth.tsv",
-        "Composite Element REF\tBeta_value\n"
-        "cg00000029\t0.75\n",
+        "Composite Element REF\tBeta_value\ncg00000029\t0.75\n",
     )
     cnv_path = _write(
         data / "copy_number_variation" / "seg.tsv",
@@ -49,8 +48,7 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
     )
     protein_path = _write(
         data / "proteome_profiling" / "rppa.tsv",
-        "protein_id\tgene_symbol\tantibody\texpression_value\n"
-        "TP53|p53\tTP53\tp53\t-0.2\n",
+        "protein_id\tgene_symbol\tantibody\texpression_value\nTP53|p53\tTP53\tp53\t-0.2\n",
     )
 
     pd.DataFrame(

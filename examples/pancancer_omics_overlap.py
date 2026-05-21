@@ -119,7 +119,9 @@ def _summarize_candidate(
     baseline_submitter_ids: set[str],
     candidate: OmicsCandidate,
 ) -> dict[str, Any]:
-    candidate_filter = open_access(f_and(_project_filter(projects), _filter_from_dict(candidate.filters)))
+    candidate_filter = open_access(
+        f_and(_project_filter(projects), _filter_from_dict(candidate.filters))
+    )
     return _summarize_filter(
         client=client,
         baseline_case_ids=baseline_case_ids,
