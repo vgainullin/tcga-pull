@@ -71,6 +71,13 @@ tcga-pull preview examples/pancancer_multiomics.yaml
 tcga-pull pull examples/pancancer_multiomics.yaml
 ```
 
+If the raw files are already downloaded, build just the non-SNV omics parquets
+with:
+
+```sh
+tcga-pull multiomics ./cohorts/pancancer_multiomics
+```
+
 ## Python API
 
 ```python
