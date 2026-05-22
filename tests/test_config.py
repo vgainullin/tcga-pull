@@ -223,3 +223,28 @@ def test_yaml_limit_per_project(tmp_path: Path):
     yaml_path.write_text("name: x\nfilters: {project: TCGA-CHOL}\nlimit:\n  per_project: 5\n")
     spec = load_yaml(yaml_path)
     assert spec.limit.per_project == 5
+
+
+def test_yaml_processing_incremental(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: x\n"
+        "filters: {project: TCGA-CHOL}\n"
+        "processing:\n"
+        "  mode: incremental\n"
+        "  batch_size: 50\n"
+        "  delete_raw_after_processing: true\n"
+    )
+    spec = load_yaml(yaml_path)
+
+    assert spec.processing.mode == "incremental"
+    assert spec.processing.batch_size == 50
+    assert spec.processing.delete_raw_after_processing is True
+
+
+def test_yaml_processing_rejects_bad_mode(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text("name: x\nfilters: {project: TCGA-CHOL}\nprocessing: {mode: nope}\n")
+
+    with pytest.raises(ValueError, match=r"processing\.mode"):
+        load_yaml(yaml_path)

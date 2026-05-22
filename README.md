@@ -71,6 +71,24 @@ tcga-pull preview examples/pancancer_multiomics.yaml
 tcga-pull pull examples/pancancer_multiomics.yaml
 ```
 
+That config uses incremental processing: each download batch is converted into
+recipe-specific parquet parts, handled non-SNV raw files are deleted, and the
+final top-level omics parquets are assembled from those parts. For custom
+cohorts, the same behavior can be enabled with:
+
+```yaml
+processing:
+  mode: incremental
+  batch_size: 200
+  delete_raw_after_processing: true
+```
+
+The same mode can be enabled from flags for ad hoc pulls:
+
+```sh
+tcga-pull pull cohort.yaml --incremental --processing-batch-size 200 --delete-raw-after-processing
+```
+
 If the raw files are already downloaded, build just the non-SNV omics parquets
 with:
 

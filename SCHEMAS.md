@@ -45,6 +45,10 @@ Additional columns:
 | `gene_copy_number.parquet` | `gene_id`, `gene_name`, `chrom`, `start`, `end`, `copy_number` |
 | `protein_expression.parquet` | `protein_id`, `gene_symbol`, `antibody`, `expression_value` |
 
+When `processing.mode: incremental` is used, these parquet outputs may be
+directory-style parquet datasets with `part-*.parquet` files under the named
+`*.parquet` path. The Python API reads both file and directory parquet outputs.
+
 ---
 
 ## `clinical.parquet`

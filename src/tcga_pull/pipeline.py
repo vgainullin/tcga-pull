@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +20,11 @@ from .download import (
 )
 from .gdc import GDCClient
 from .layout import write_clinical, write_manifest, write_provenance
+
+
+def _chunks(items: list[dict], size: int) -> Iterator[list[dict]]:
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
 
 
 @dataclass
@@ -147,6 +152,9 @@ def run(
         console.print("[yellow]No files match. Refine the filter.[/yellow]")
         return spec.cohort_dir
 
+    if spec.processing.mode == "incremental":
+        return _run_incremental(spec, preview=preview, console=console, client=client)
+
     cohort_dir = spec.cohort_dir
     cohort_dir.mkdir(parents=True, exist_ok=True)
     download_tmp = cohort_dir / "_downloads"
@@ -210,6 +218,127 @@ def run(
         recipe(cohort_dir)
 
     return cohort_dir
+
+
+def _run_incremental(
+    spec: CohortSpec,
+    *,
+    preview: Preview,
+    console: Console,
+    client: GDCClient,
+) -> Path:
+    """Batch-oriented pull for large cohorts.
+
+    Batch-aware multiomics recipes process each batch immediately. When
+    configured, raw files handled by those recipes are deleted before the next
+    batch downloads. Non-batch-aware recipes still run at the end against any
+    raw files intentionally retained, e.g. SNV MAFs for variants/samples.
+    """
+    from .multiomics import (
+        MULTIOMICS_RECIPE_NAMES,
+        finalize_multiomics_parts,
+        write_multiomics_parts,
+    )
+
+    if not should_use_bulk(preview.file_hits):
+        raise ValueError("incremental processing currently supports only bulk-API sized files")
+
+    cohort_dir = spec.cohort_dir
+    cohort_dir.mkdir(parents=True, exist_ok=True)
+    download_tmp = cohort_dir / "_downloads"
+    data_dir = cohort_dir / "data"
+
+    manifest_tsv = cohort_dir / "manifest.tsv"
+    write_manifest_tsv(preview.file_hits, manifest_tsv)
+    console.log(f"[green]wrote[/green] {manifest_tsv}")
+
+    batch_recipes = [r for r in spec.recipes if r in MULTIOMICS_RECIPE_NAMES]
+    records: list[dict] = []
+    total_batches = (len(preview.file_hits) + spec.processing.batch_size - 1) // (
+        spec.processing.batch_size
+    )
+    for bi, file_batch in enumerate(
+        _chunks(preview.file_hits, spec.processing.batch_size), start=1
+    ):
+        console.print(
+            f"\n[cyan]==> incremental batch {bi}/{total_batches}[/cyan] ({len(file_batch):,} files)"
+        )
+        bulk_download_via_api(
+            file_batch,
+            download_tmp,
+            batch_size=spec.processing.batch_size,
+            console=console,
+        )
+        batch_records = restructure(file_batch, download_tmp, data_dir, move=True)
+        if batch_recipes:
+            write_multiomics_parts(
+                cohort_dir,
+                batch_records,
+                part_id=bi,
+                recipes=batch_recipes,
+            )
+            if spec.processing.delete_raw_after_processing:
+                _delete_batch_raw(batch_records, recipes=batch_recipes)
+        records.extend(batch_records)
+
+    with console.status("[cyan]Fetching clinical metadata…[/cyan]"):
+        cases = client.fetch_clinical(preview.resolved_filter)
+    clinical_path, raw_path = write_clinical(cases, cohort_dir)
+    manifest_path = write_manifest(records, cohort_dir)
+    prov_path = write_provenance(
+        cohort_dir,
+        {
+            "name": spec.name,
+            "filter": preview.resolved_filter,
+            "n_files": preview.n_files,
+            "n_cases": preview.n_cases,
+            "total_size": preview.total_size,
+            "processing": {
+                "mode": spec.processing.mode,
+                "batch_size": spec.processing.batch_size,
+                "delete_raw_after_processing": spec.processing.delete_raw_after_processing,
+            },
+        },
+    )
+
+    import shutil
+
+    shutil.rmtree(download_tmp, ignore_errors=True)
+
+    console.print(f"[green]done[/green] -> {cohort_dir}")
+    console.print(f"  clinical : {clinical_path}")
+    console.print(f"  manifest : {manifest_path}")
+    console.print(f"  provenance: {prov_path}")
+    console.print(f"  raw      : {raw_path}")
+
+    if batch_recipes:
+        console.print("\n[cyan]==> finalize incremental multiomics[/cyan]")
+        finalize_multiomics_parts(cohort_dir, recipes=batch_recipes)
+
+    for recipe_name in spec.recipes:
+        if recipe_name in MULTIOMICS_RECIPE_NAMES:
+            continue
+        recipe = RECIPE_REGISTRY.get(recipe_name)
+        if recipe is None:
+            continue
+        console.print(f"\n[cyan]==> recipe: {recipe_name}[/cyan]")
+        recipe(cohort_dir)
+
+    return cohort_dir
+
+
+def _delete_batch_raw(records: list[dict], *, recipes: list[str]) -> None:
+    from .multiomics import record_handled_by_multiomics
+
+    for record in records:
+        local_path = record.get("local_path")
+        if not local_path or not record_handled_by_multiomics(record, recipes):
+            continue
+        path = Path(local_path)
+        if path.exists():
+            path.unlink()
+        record["local_path"] = None
+        record["status"] = "processed_deleted"
 
 
 def _recipe_variants(cohort_dir: Path) -> None:

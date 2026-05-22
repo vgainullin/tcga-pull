@@ -15,7 +15,14 @@ from rich.console import Console
 
 from . import pipeline
 from .api import load_cohort
-from .config import CohortSpec, LimitSpec, from_flags, load_yaml, read_projects_file
+from .config import (
+    CohortSpec,
+    LimitSpec,
+    ProcessingSpec,
+    from_flags,
+    load_yaml,
+    read_projects_file,
+)
 from .download import write_manifest_tsv
 from .gdc import GDCClient
 
@@ -49,6 +56,9 @@ class CohortBuildOptions:
     sample_type: list[str] | None = None
     n_processes: int = 4
     limit_per_project: int | None = None
+    incremental: bool | None = None
+    processing_batch_size: int | None = None
+    delete_raw_after_processing: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +134,25 @@ def build_cohort_spec(options: CohortBuildOptions) -> CohortSpec:
     if options.limit_per_project is not None:
         try:
             spec.limit = LimitSpec(per_project=options.limit_per_project)
+        except ValueError as e:
+            raise SpecBuildError(str(e)) from e
+    if (
+        options.incremental is not None
+        or options.processing_batch_size is not None
+        or options.delete_raw_after_processing is not None
+    ):
+        try:
+            spec.processing = ProcessingSpec(
+                mode="incremental"
+                if options.incremental
+                else ("standard" if options.incremental is False else spec.processing.mode),
+                batch_size=options.processing_batch_size or spec.processing.batch_size,
+                delete_raw_after_processing=(
+                    options.delete_raw_after_processing
+                    if options.delete_raw_after_processing is not None
+                    else spec.processing.delete_raw_after_processing
+                ),
+            )
         except ValueError as e:
             raise SpecBuildError(str(e)) from e
     return spec

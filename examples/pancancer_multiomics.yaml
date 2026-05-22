@@ -82,6 +82,11 @@ filters:
 download:
   n_processes: 4
 
+processing:
+  mode: incremental
+  batch_size: 200
+  delete_raw_after_processing: true
+
 recipes:
   - variants
   - samples

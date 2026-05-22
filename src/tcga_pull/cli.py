@@ -35,6 +35,9 @@ def _spec_from_args(
     n_processes: int,
     limit_per_project: int | None = None,
     omics: str | None = None,
+    incremental: bool | None = None,
+    processing_batch_size: int | None = None,
+    delete_raw_after_processing: bool | None = None,
 ):
     try:
         spec = services.build_cohort_spec(
@@ -52,6 +55,9 @@ def _spec_from_args(
                 sample_type=sample_type,
                 n_processes=n_processes,
                 limit_per_project=limit_per_project,
+                incremental=incremental,
+                processing_batch_size=processing_batch_size,
+                delete_raw_after_processing=delete_raw_after_processing,
             )
         )
         if omics is not None:
@@ -97,6 +103,21 @@ def pull(
         "--omics",
         help="Pull a named optional_omics entry from the YAML instead of the primary cohort.",
     ),
+    incremental: bool = typer.Option(
+        False,
+        "--incremental",
+        help="Download/process in batches for batch-aware recipes.",
+    ),
+    processing_batch_size: int | None = typer.Option(
+        None,
+        "--processing-batch-size",
+        help="Files per incremental download/process batch.",
+    ),
+    delete_raw_after_processing: bool = typer.Option(
+        False,
+        "--delete-raw-after-processing",
+        help="Delete raw files handled by incremental recipes after their parquet output is written.",
+    ),
 ) -> None:
     """Build a cohort from a YAML config or flags. Run `preview` first to dry-run."""
     spec = _spec_from_args(
@@ -114,6 +135,9 @@ def pull(
         n_processes=n_processes,
         limit_per_project=limit_per_project,
         omics=omics,
+        incremental=incremental,
+        processing_batch_size=processing_batch_size,
+        delete_raw_after_processing=delete_raw_after_processing,
     )
     services.run_cohort(spec, console=console)
 

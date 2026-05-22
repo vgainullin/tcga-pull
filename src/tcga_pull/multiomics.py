@@ -8,6 +8,7 @@ writing an empty parquet with the expected schema.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -93,6 +94,15 @@ PROTEIN_SCHEMA = pa.schema(
         pa.field("expression_value", pa.float64()),
     ]
 )
+
+MULTIOMICS_RECIPE_NAMES = {
+    "rna_expression",
+    "mirna_expression",
+    "methylation",
+    "copy_number",
+    "protein_expression",
+    "multiomics",
+}
 
 
 def write_rna_expression(cohort_dir: Path) -> Path:
@@ -181,6 +191,42 @@ def write_multiomics(cohort_dir: Path) -> list[Path]:
     ]
 
 
+def write_multiomics_parts(
+    cohort_dir: Path,
+    records: list[dict[str, Any]],
+    *,
+    part_id: int,
+    recipes: Iterable[str],
+) -> list[Path]:
+    """Write selected multiomics recipe outputs for one downloaded batch.
+
+    Parts land under <cohort>/_parts/<output-name>/part-XXXXXX.parquet and are
+    finalized into top-level parquet files after all batches finish.
+    """
+    selected = _expanded_recipes(recipes)
+    out: list[Path] = []
+    for output_name, schema, frames in _recipe_frame_iterators(records, selected):
+        part_path = _parts_dir(cohort_dir, output_name) / f"part-{part_id:06d}.parquet"
+        if _write_stream(part_path, frames, schema, write_empty=False):
+            out.append(part_path)
+    return out
+
+
+def finalize_multiomics_parts(cohort_dir: Path, *, recipes: Iterable[str]) -> list[Path]:
+    selected = _expanded_recipes(recipes)
+    out: list[Path] = []
+    for output_name, schema, _ in _recipe_frame_iterators([], selected):
+        out_path = Path(cohort_dir) / f"{output_name}.parquet"
+        _combine_parts(_parts_dir(cohort_dir, output_name), out_path, schema)
+        out.append(out_path)
+    return out
+
+
+def record_handled_by_multiomics(record: dict[str, Any], recipes: Iterable[str]) -> bool:
+    selected = _expanded_recipes(recipes)
+    return any(_matches_output(record, output_name) for output_name in selected)
+
+
 def _manifest_rows(
     cohort_dir: Path,
     *,
@@ -210,6 +256,115 @@ def _manifest_rows(
         path = row.get("local_path")
         if path and Path(path).exists():
             yield row
+
+
+def _expanded_recipes(recipes: Iterable[str]) -> set[str]:
+    selected = set(recipes) & MULTIOMICS_RECIPE_NAMES
+    if "multiomics" in selected:
+        return {
+            "rna_expression",
+            "mirna_expression",
+            "methylation_beta",
+            "copy_number_segments",
+            "gene_copy_number",
+            "protein_expression",
+        }
+    out: set[str] = set()
+    if "rna_expression" in selected:
+        out.add("rna_expression")
+    if "mirna_expression" in selected:
+        out.add("mirna_expression")
+    if "methylation" in selected:
+        out.add("methylation_beta")
+    if "copy_number" in selected:
+        out.update({"copy_number_segments", "gene_copy_number"})
+    if "protein_expression" in selected:
+        out.add("protein_expression")
+    return out
+
+
+def _recipe_frame_iterators(
+    records: list[dict[str, Any]],
+    selected: set[str],
+) -> Iterator[tuple[str, pa.Schema, Iterable[pd.DataFrame]]]:
+    if "rna_expression" in selected:
+        yield (
+            "rna_expression",
+            RNA_SCHEMA,
+            (_rna_frame(row) for row in records if _matches_output(row, "rna_expression")),
+        )
+    if "mirna_expression" in selected:
+        yield (
+            "mirna_expression",
+            MIRNA_SCHEMA,
+            (_mirna_frame(row) for row in records if _matches_output(row, "mirna_expression")),
+        )
+    if "methylation_beta" in selected:
+        yield (
+            "methylation_beta",
+            METHYLATION_SCHEMA,
+            (
+                _methylation_frame(row)
+                for row in records
+                if _matches_output(row, "methylation_beta")
+            ),
+        )
+    if "copy_number_segments" in selected:
+        yield (
+            "copy_number_segments",
+            CNV_SEGMENT_SCHEMA,
+            (
+                _cnv_segment_frame(row)
+                for row in records
+                if _matches_output(row, "copy_number_segments")
+            ),
+        )
+    if "gene_copy_number" in selected:
+        yield (
+            "gene_copy_number",
+            GENE_CNV_SCHEMA,
+            (_gene_cnv_frame(row) for row in records if _matches_output(row, "gene_copy_number")),
+        )
+    if "protein_expression" in selected:
+        yield (
+            "protein_expression",
+            PROTEIN_SCHEMA,
+            (_protein_frame(row) for row in records if _matches_output(row, "protein_expression")),
+        )
+
+
+def _matches_output(record: dict[str, Any], output_name: str) -> bool:
+    category = record.get("data_category")
+    data_type = record.get("data_type")
+    strategy = record.get("experimental_strategy")
+    if output_name == "rna_expression":
+        return (
+            category == "Transcriptome Profiling"
+            and data_type == "Gene Expression Quantification"
+            and strategy == "RNA-Seq"
+        )
+    if output_name == "mirna_expression":
+        return (
+            category == "Transcriptome Profiling"
+            and data_type == "miRNA Expression Quantification"
+            and strategy == "miRNA-Seq"
+        )
+    if output_name == "methylation_beta":
+        return category == "DNA Methylation" and data_type == "Methylation Beta Value"
+    if output_name == "copy_number_segments":
+        return category == "Copy Number Variation" and data_type in {
+            "Copy Number Segment",
+            "Masked Copy Number Segment",
+        }
+    if output_name == "gene_copy_number":
+        return category == "Copy Number Variation" and data_type == "Gene Level Copy Number"
+    if output_name == "protein_expression":
+        return category == "Proteome Profiling" and data_type == "Protein Expression Quantification"
+    return False
+
+
+def _parts_dir(cohort_dir: Path, output_name: str) -> Path:
+    return Path(cohort_dir) / "_parts" / output_name
 
 
 def _read_table(path: Path) -> pd.DataFrame:
@@ -376,7 +531,28 @@ def _empty_df(schema: pa.Schema) -> pd.DataFrame:
     return pd.DataFrame({field.name: pd.Series(dtype="object") for field in schema})
 
 
-def _write_stream(path: Path, frames: Iterable[pd.DataFrame], schema: pa.Schema) -> None:
+def _combine_parts(parts_dir: Path, out_path: Path, schema: pa.Schema) -> None:
+    part_paths = sorted(parts_dir.glob("part-*.parquet")) if parts_dir.exists() else []
+    if not part_paths:
+        _write_stream(out_path, [], schema)
+        return
+
+    if out_path.exists():
+        if out_path.is_dir():
+            shutil.rmtree(out_path)
+        else:
+            out_path.unlink()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    parts_dir.rename(out_path)
+
+
+def _write_stream(
+    path: Path,
+    frames: Iterable[pd.DataFrame],
+    schema: pa.Schema,
+    *,
+    write_empty: bool = True,
+) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     writer: pq.ParquetWriter | None = None
     wrote_any = False
@@ -389,7 +565,7 @@ def _write_stream(path: Path, frames: Iterable[pd.DataFrame], schema: pa.Schema)
                 writer = pq.ParquetWriter(path, schema=schema)
             writer.write_table(table)
             wrote_any = True
-        if not wrote_any:
+        if not wrote_any and write_empty:
             empty = pa.Table.from_pandas(_empty_df(schema), schema=schema, preserve_index=False)
             if writer is None:
                 writer = pq.ParquetWriter(path, schema=schema)
@@ -397,3 +573,4 @@ def _write_stream(path: Path, frames: Iterable[pd.DataFrame], schema: pa.Schema)
     finally:
         if writer is not None:
             writer.close()
+    return wrote_any

@@ -65,6 +65,26 @@ class LimitSpec:
 
 
 @dataclass
+class ProcessingSpec:
+    """Post-download processing behavior.
+
+    Standard mode downloads/restructures the whole cohort, then runs recipes.
+    Incremental mode downloads in batches, lets batch-aware recipes process each
+    batch, and can delete handled raw files before downloading the next batch.
+    """
+
+    mode: str = "standard"
+    batch_size: int = 200
+    delete_raw_after_processing: bool = False
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"standard", "incremental"}:
+            raise ValueError("processing.mode must be 'standard' or 'incremental'")
+        if self.batch_size <= 0:
+            raise ValueError(f"processing.batch_size must be > 0, got {self.batch_size!r}")
+
+
+@dataclass
 class OptionalOmicsSpec:
     """Named add-on dataset that can be pulled alongside a primary cohort.
 
@@ -97,6 +117,7 @@ class CohortSpec:
     n_processes: int = 4
     recipes: list[str] = field(default_factory=list)
     limit: LimitSpec = field(default_factory=LimitSpec)
+    processing: ProcessingSpec = field(default_factory=ProcessingSpec)
     optional_omics: list[OptionalOmicsSpec] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -144,6 +165,7 @@ class CohortSpec:
             n_processes=self.n_processes,
             recipes=list(omics.recipes),
             limit=self.limit,
+            processing=self.processing,
         )
 
 
@@ -157,6 +179,14 @@ def load_yaml(path: Path, *, out_dir_override: Path | None = None) -> CohortSpec
         out_dir = Path(data.get("out_dir", "./cohorts")).expanduser().resolve()
     limit_block = data.get("limit") or {}
     limit = LimitSpec(per_project=limit_block.get("per_project"))
+    processing_block = data.get("processing") or {}
+    processing = ProcessingSpec(
+        mode=processing_block.get("mode", "standard"),
+        batch_size=int(processing_block.get("batch_size", 200)),
+        delete_raw_after_processing=bool(
+            processing_block.get("delete_raw_after_processing", False)
+        ),
+    )
     optional_omics = [
         OptionalOmicsSpec(
             name=item["name"],
@@ -175,6 +205,7 @@ def load_yaml(path: Path, *, out_dir_override: Path | None = None) -> CohortSpec
         n_processes=int((data.get("download") or {}).get("n_processes", 4)),
         recipes=list(data.get("recipes") or []),
         limit=limit,
+        processing=processing,
         optional_omics=optional_omics,
     )
 
@@ -191,6 +222,7 @@ def from_flags(
     workflow: list[str] | None = None,
     sample_type: list[str] | None = None,
     n_processes: int = 4,
+    processing: ProcessingSpec | None = None,
 ) -> CohortSpec:
     filters: dict[str, Any] = {}
     if project:
@@ -207,7 +239,13 @@ def from_flags(
         filters["workflow"] = workflow
     if sample_type:
         filters["sample_type"] = sample_type
-    return CohortSpec(name=name, out_dir=out_dir, filters=filters, n_processes=n_processes)
+    return CohortSpec(
+        name=name,
+        out_dir=out_dir,
+        filters=filters,
+        n_processes=n_processes,
+        processing=processing or ProcessingSpec(),
+    )
 
 
 def read_projects_file(path: Path) -> list[str]:
