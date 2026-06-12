@@ -48,6 +48,8 @@ Additional columns:
 When `processing.mode: incremental` is used, these parquet outputs may be
 directory-style parquet datasets with `part-*.parquet` files under the named
 `*.parquet` path. The Python API reads both file and directory parquet outputs.
+Recipe-specific options may reduce columns or rows, for example RNA column
+selection, methylation probe allowlists, or choosing only segment-level CNV.
 
 ---
 

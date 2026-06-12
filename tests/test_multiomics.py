@@ -197,15 +197,78 @@ def test_write_multiomics_parts_finalizes_directory_parquet(tmp_path: Path):
         }
     ]
 
-    part_paths = write_multiomics_parts(cohort, records, part_id=1, recipes=["rna_expression"])
-    outputs = finalize_multiomics_parts(cohort, recipes=["rna_expression"])
+    recipe_options = {"rna_expression": {"columns": ["gene_id", "gene_name", "unstranded"]}}
+    part_paths = write_multiomics_parts(
+        cohort,
+        records,
+        part_id=1,
+        recipes=["rna_expression"],
+        recipe_options=recipe_options,
+    )
+    outputs = finalize_multiomics_parts(
+        cohort,
+        recipes=["rna_expression"],
+        recipe_options=recipe_options,
+    )
 
     assert [p.name for p in part_paths] == ["part-000001.parquet"]
     assert [p.name for p in outputs] == ["rna_expression.parquet"]
     assert (cohort / "rna_expression.parquet").is_dir()
     df = pl.read_parquet(cohort / "rna_expression.parquet")
     assert df.height == 1
+    assert df.columns == [
+        "case_id",
+        "submitter_id",
+        "file_id",
+        "file_name",
+        "data_type",
+        "experimental_strategy",
+        "workflow_type",
+        "gene_id",
+        "gene_name",
+        "unstranded",
+    ]
     assert df.row(0, named=True)["gene_name"] == "TP53"
+
+
+def test_methylation_probe_allowlist_in_parts(tmp_path: Path):
+    cohort = tmp_path / "cohort"
+    data = cohort / "data" / "TCGA-XX-0001"
+    methylation_path = _write(
+        data / "dna_methylation" / "meth.tsv",
+        "Composite Element REF\tBeta_value\ncg00000029\t0.75\ncg99999999\t0.10\n",
+    )
+    records = [
+        {
+            "file_id": "meth-file",
+            "file_name": "meth.tsv",
+            "case_id": "case-1",
+            "submitter_id": "TCGA-XX-0001",
+            "data_category": "DNA Methylation",
+            "data_type": "Methylation Beta Value",
+            "experimental_strategy": "Methylation Array",
+            "workflow_type": None,
+            "local_path": methylation_path,
+            "status": "ok",
+        }
+    ]
+
+    write_multiomics_parts(
+        cohort,
+        records,
+        part_id=1,
+        recipes=["methylation"],
+        recipe_options={"methylation": {"probes": ["cg00000029"]}},
+    )
+    finalize_multiomics_parts(
+        cohort,
+        recipes=["methylation"],
+        recipe_options={"methylation": {"probes": ["cg00000029"]}},
+    )
+
+    df = pl.read_parquet(cohort / "methylation_beta.parquet")
+    assert df.height == 1
+    assert df.row(0, named=True)["probe_id"] == "cg00000029"
 
 
 def test_record_handled_by_multiomics_respects_selected_recipes():

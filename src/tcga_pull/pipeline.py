@@ -276,6 +276,7 @@ def _run_incremental(
                 batch_records,
                 part_id=bi,
                 recipes=batch_recipes,
+                recipe_options=spec.recipe_options,
             )
             if spec.processing.delete_raw_after_processing:
                 _delete_batch_raw(batch_records, recipes=batch_recipes)
@@ -313,7 +314,11 @@ def _run_incremental(
 
     if batch_recipes:
         console.print("\n[cyan]==> finalize incremental multiomics[/cyan]")
-        finalize_multiomics_parts(cohort_dir, recipes=batch_recipes)
+        finalize_multiomics_parts(
+            cohort_dir,
+            recipes=batch_recipes,
+            recipe_options=spec.recipe_options,
+        )
 
     for recipe_name in spec.recipes:
         if recipe_name in MULTIOMICS_RECIPE_NAMES:

@@ -197,6 +197,7 @@ def write_multiomics_parts(
     *,
     part_id: int,
     recipes: Iterable[str],
+    recipe_options: dict[str, Any] | None = None,
 ) -> list[Path]:
     """Write selected multiomics recipe outputs for one downloaded batch.
 
@@ -205,17 +206,24 @@ def write_multiomics_parts(
     """
     selected = _expanded_recipes(recipes)
     out: list[Path] = []
-    for output_name, schema, frames in _recipe_frame_iterators(records, selected):
+    for output_name, schema, frames in _recipe_frame_iterators(
+        records, selected, recipe_options or {}
+    ):
         part_path = _parts_dir(cohort_dir, output_name) / f"part-{part_id:06d}.parquet"
         if _write_stream(part_path, frames, schema, write_empty=False):
             out.append(part_path)
     return out
 
 
-def finalize_multiomics_parts(cohort_dir: Path, *, recipes: Iterable[str]) -> list[Path]:
+def finalize_multiomics_parts(
+    cohort_dir: Path,
+    *,
+    recipes: Iterable[str],
+    recipe_options: dict[str, Any] | None = None,
+) -> list[Path]:
     selected = _expanded_recipes(recipes)
     out: list[Path] = []
-    for output_name, schema, _ in _recipe_frame_iterators([], selected):
+    for output_name, schema, _ in _recipe_frame_iterators([], selected, recipe_options or {}):
         out_path = Path(cohort_dir) / f"{output_name}.parquet"
         _combine_parts(_parts_dir(cohort_dir, output_name), out_path, schema)
         out.append(out_path)
@@ -286,12 +294,14 @@ def _expanded_recipes(recipes: Iterable[str]) -> set[str]:
 def _recipe_frame_iterators(
     records: list[dict[str, Any]],
     selected: set[str],
+    recipe_options: dict[str, Any],
 ) -> Iterator[tuple[str, pa.Schema, Iterable[pd.DataFrame]]]:
     if "rna_expression" in selected:
+        schema = _schema_for_output("rna_expression", RNA_SCHEMA, recipe_options)
         yield (
             "rna_expression",
-            RNA_SCHEMA,
-            (_rna_frame(row) for row in records if _matches_output(row, "rna_expression")),
+            schema,
+            (_rna_frame(row, schema) for row in records if _matches_output(row, "rna_expression")),
         )
     if "mirna_expression" in selected:
         yield (
@@ -300,16 +310,23 @@ def _recipe_frame_iterators(
             (_mirna_frame(row) for row in records if _matches_output(row, "mirna_expression")),
         )
     if "methylation_beta" in selected:
+        schema = _schema_for_output("methylation_beta", METHYLATION_SCHEMA, recipe_options)
         yield (
             "methylation_beta",
-            METHYLATION_SCHEMA,
+            schema,
             (
-                _methylation_frame(row)
+                _methylation_frame(
+                    row,
+                    schema,
+                    _output_options(recipe_options, "methylation_beta"),
+                )
                 for row in records
                 if _matches_output(row, "methylation_beta")
             ),
         )
-    if "copy_number_segments" in selected:
+    if "copy_number_segments" in selected and _copy_number_output_enabled(
+        recipe_options, "segments"
+    ):
         yield (
             "copy_number_segments",
             CNV_SEGMENT_SCHEMA,
@@ -319,7 +336,7 @@ def _recipe_frame_iterators(
                 if _matches_output(row, "copy_number_segments")
             ),
         )
-    if "gene_copy_number" in selected:
+    if "gene_copy_number" in selected and _copy_number_output_enabled(recipe_options, "gene"):
         yield (
             "gene_copy_number",
             GENE_CNV_SCHEMA,
@@ -367,6 +384,60 @@ def _parts_dir(cohort_dir: Path, output_name: str) -> Path:
     return Path(cohort_dir) / "_parts" / output_name
 
 
+def _output_options(recipe_options: dict[str, Any], output_name: str) -> dict[str, Any]:
+    aliases = {
+        "rna_expression": ("rna_expression", "rna"),
+        "mirna_expression": ("mirna_expression", "mirna"),
+        "methylation_beta": ("methylation_beta", "methylation"),
+        "copy_number_segments": ("copy_number_segments", "copy_number"),
+        "gene_copy_number": ("gene_copy_number", "copy_number"),
+        "protein_expression": ("protein_expression", "protein"),
+    }
+    for key in aliases.get(output_name, (output_name,)):
+        value = recipe_options.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _schema_for_output(
+    output_name: str,
+    base_schema: pa.Schema,
+    recipe_options: dict[str, Any],
+) -> pa.Schema:
+    options = _output_options(recipe_options, output_name)
+    requested = options.get("columns")
+    if not requested:
+        return base_schema
+    keep = {field.name for field in COMMON_FIELDS}
+    keep.update(str(col) for col in requested)
+    fields = [field for field in base_schema if field.name in keep]
+    known = {field.name for field in base_schema}
+    unknown = sorted(keep - known)
+    if unknown:
+        raise ValueError(f"unknown {output_name} columns: {unknown}")
+    return pa.schema(fields)
+
+
+def _copy_number_output_enabled(recipe_options: dict[str, Any], output_name: str) -> bool:
+    options = _output_options(recipe_options, "copy_number_segments")
+    outputs = options.get("outputs")
+    if not outputs:
+        return True
+    return output_name in {str(item) for item in outputs}
+
+
+def _allowed_set(options: dict[str, Any], key: str, file_key: str) -> set[str] | None:
+    values = set(str(item) for item in options.get(key) or [])
+    path = options.get(file_key)
+    if path:
+        for raw in Path(path).expanduser().read_text().splitlines():
+            value = raw.strip()
+            if value and not value.startswith("#"):
+                values.add(value)
+    return values or None
+
+
 def _read_table(path: Path) -> pd.DataFrame:
     try:
         df = pd.read_csv(path, sep="\t", comment="#", dtype=str, low_memory=False)
@@ -386,7 +457,7 @@ def _normalize_col(value: object) -> str:
     return out.strip("_")
 
 
-def _rna_frame(row: dict[str, Any]) -> pd.DataFrame:
+def _rna_frame(row: dict[str, Any], schema: pa.Schema = RNA_SCHEMA) -> pd.DataFrame:
     df = _read_table(Path(row["local_path"]))
     if "gene_id" not in df.columns and len(df.columns) > 0:
         df = df.rename(columns={df.columns[0]: "gene_id"})
@@ -401,7 +472,7 @@ def _rna_frame(row: dict[str, Any]) -> pd.DataFrame:
         out[col] = _int(df, col)
     for col in ("tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded"):
         out[col] = _float(df, col)
-    return _select_schema(out, RNA_SCHEMA)
+    return _select_schema(out, schema)
 
 
 def _mirna_frame(row: dict[str, Any]) -> pd.DataFrame:
@@ -419,12 +490,20 @@ def _mirna_frame(row: dict[str, Any]) -> pd.DataFrame:
     return _select_schema(out, MIRNA_SCHEMA)
 
 
-def _methylation_frame(row: dict[str, Any]) -> pd.DataFrame:
+def _methylation_frame(
+    row: dict[str, Any],
+    schema: pa.Schema = METHYLATION_SCHEMA,
+    options: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     df = _read_table(Path(row["local_path"]))
+    probe_col = _first_col(df, ("probe_id", "composite_element_ref", "id_ref", "name"))
+    allowed = _allowed_set(options or {}, "probes", "probes_file")
+    if allowed is not None and probe_col is not None:
+        df = df[df[probe_col].isin(allowed)].copy()
     out = _with_common(df, row)
     out["probe_id"] = _text(df, "probe_id", "composite_element_ref", "id_ref", "name")
     out["beta_value"] = _float(df, "beta_value", "beta", "value")
-    return _select_schema(out, METHYLATION_SCHEMA)
+    return _select_schema(out, schema)
 
 
 def _cnv_segment_frame(row: dict[str, Any]) -> pd.DataFrame:

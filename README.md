@@ -83,6 +83,18 @@ processing:
   delete_raw_after_processing: true
 ```
 
+Recipe-specific reduction options can shrink processed outputs further:
+
+```yaml
+recipe_options:
+  rna_expression:
+    columns: [gene_id, gene_name, gene_type, unstranded]
+  methylation:
+    probes_file: ./probe_panels/immune_probes.txt
+  copy_number:
+    outputs: [segments]  # choose from: segments, gene
+```
+
 The same mode can be enabled from flags for ad hoc pulls:
 
 ```sh

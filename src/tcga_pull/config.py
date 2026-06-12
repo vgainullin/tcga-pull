@@ -118,6 +118,7 @@ class CohortSpec:
     recipes: list[str] = field(default_factory=list)
     limit: LimitSpec = field(default_factory=LimitSpec)
     processing: ProcessingSpec = field(default_factory=ProcessingSpec)
+    recipe_options: dict[str, Any] = field(default_factory=dict)
     optional_omics: list[OptionalOmicsSpec] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -166,6 +167,7 @@ class CohortSpec:
             recipes=list(omics.recipes),
             limit=self.limit,
             processing=self.processing,
+            recipe_options=self.recipe_options,
         )
 
 
@@ -206,6 +208,7 @@ def load_yaml(path: Path, *, out_dir_override: Path | None = None) -> CohortSpec
         recipes=list(data.get("recipes") or []),
         limit=limit,
         processing=processing,
+        recipe_options=data.get("recipe_options", {}) or {},
         optional_omics=optional_omics,
     )
 

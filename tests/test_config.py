@@ -242,6 +242,27 @@ def test_yaml_processing_incremental(tmp_path: Path):
     assert spec.processing.delete_raw_after_processing is True
 
 
+def test_yaml_recipe_options(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: x\n"
+        "filters: {project: TCGA-CHOL}\n"
+        "recipe_options:\n"
+        "  rna_expression:\n"
+        "    columns: [gene_id, gene_name, unstranded]\n"
+        "  copy_number:\n"
+        "    outputs: [segments]\n"
+    )
+    spec = load_yaml(yaml_path)
+
+    assert spec.recipe_options["rna_expression"]["columns"] == [
+        "gene_id",
+        "gene_name",
+        "unstranded",
+    ]
+    assert spec.recipe_options["copy_number"]["outputs"] == ["segments"]
+
+
 def test_yaml_processing_rejects_bad_mode(tmp_path: Path):
     yaml_path = tmp_path / "cohort.yaml"
     yaml_path.write_text("name: x\nfilters: {project: TCGA-CHOL}\nprocessing: {mode: nope}\n")
