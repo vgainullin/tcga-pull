@@ -73,6 +73,49 @@ def test_build_cohort_spec_loads_yaml_and_applies_overrides(tmp_path: Path):
     assert spec.limit.per_project == 2
 
 
+def test_build_cohort_spec_preserves_yaml_processing_when_flags_unset(tmp_path: Path):
+    """Unset processing flags (None) must not clobber the YAML's processing block."""
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: yaml_cohort\n"
+        "filters: {project: TCGA-BRCA}\n"
+        "processing:\n"
+        "  mode: incremental\n"
+        "  batch_size: 200\n"
+        "  delete_raw_after_processing: true\n"
+    )
+
+    spec = build_cohort_spec(CohortBuildOptions(config=yaml_path, out=tmp_path / "out"))
+
+    assert spec.processing.mode == "incremental"
+    assert spec.processing.batch_size == 200
+    assert spec.processing.delete_raw_after_processing is True
+
+
+def test_build_cohort_spec_flags_override_yaml_processing(tmp_path: Path):
+    """Explicit flags still win over the YAML's processing block."""
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: yaml_cohort\n"
+        "filters: {project: TCGA-BRCA}\n"
+        "processing:\n"
+        "  mode: incremental\n"
+        "  delete_raw_after_processing: true\n"
+    )
+
+    spec = build_cohort_spec(
+        CohortBuildOptions(
+            config=yaml_path,
+            out=tmp_path / "out",
+            incremental=False,
+            delete_raw_after_processing=False,
+        )
+    )
+
+    assert spec.processing.mode == "standard"
+    assert spec.processing.delete_raw_after_processing is False
+
+
 def test_build_cohort_spec_requires_project_when_not_loading_yaml():
     with pytest.raises(SpecBuildError, match="Need either"):
         build_cohort_spec(CohortBuildOptions())

@@ -103,20 +103,22 @@ def pull(
         "--omics",
         help="Pull a named optional_omics entry from the YAML instead of the primary cohort.",
     ),
-    incremental: bool = typer.Option(
-        False,
-        "--incremental",
-        help="Download/process in batches for batch-aware recipes.",
+    incremental: bool | None = typer.Option(
+        None,
+        "--incremental/--no-incremental",
+        help="Download/process in batches for batch-aware recipes. "
+        "Unset leaves the YAML's processing.mode untouched.",
     ),
     processing_batch_size: int | None = typer.Option(
         None,
         "--processing-batch-size",
         help="Files per incremental download/process batch.",
     ),
-    delete_raw_after_processing: bool = typer.Option(
-        False,
-        "--delete-raw-after-processing",
-        help="Delete raw files handled by incremental recipes after their parquet output is written.",
+    delete_raw_after_processing: bool | None = typer.Option(
+        None,
+        "--delete-raw-after-processing/--no-delete-raw-after-processing",
+        help="Delete raw files handled by incremental recipes after their parquet output is written. "
+        "Unset leaves the YAML's processing.delete_raw_after_processing untouched.",
     ),
 ) -> None:
     """Build a cohort from a YAML config or flags. Run `preview` first to dry-run."""
