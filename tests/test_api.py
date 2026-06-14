@@ -33,6 +33,16 @@ def _make_cohort_dir(tmp_path: Path, *, with_optional: bool = False) -> Path:
         pl.DataFrame({"chrom": ["chr1"], "pos": [1000], "lineage": ["breast"]}).write_parquet(
             cohort / "variant_frequency.parquet"
         )
+        pl.DataFrame({"gene_id": ["ENSG1"]}).write_parquet(cohort / "rna_expression.parquet")
+        pl.DataFrame({"mirna_id": ["hsa-let-7a"]}).write_parquet(
+            cohort / "mirna_expression.parquet"
+        )
+        pl.DataFrame({"probe_id": ["cg1"]}).write_parquet(cohort / "methylation_beta.parquet")
+        pl.DataFrame({"chrom": ["1"]}).write_parquet(cohort / "copy_number_segments.parquet")
+        pl.DataFrame({"gene_name": ["TP53"]}).write_parquet(cohort / "gene_copy_number.parquet")
+        pl.DataFrame({"protein_id": ["TP53|p53"]}).write_parquet(
+            cohort / "protein_expression.parquet"
+        )
     return cohort
 
 
@@ -68,6 +78,8 @@ def test_cohort_optional_frames_return_none_when_missing(tmp_path: Path):
     cohort = load_cohort(_make_cohort_dir(tmp_path, with_optional=False))
     assert cohort.gene_frequency is None
     assert cohort.variant_frequency is None
+    assert cohort.rna_expression is None
+    assert cohort.protein_expression is None
 
 
 def test_cohort_optional_frames_load_when_present(tmp_path: Path):
@@ -75,6 +87,12 @@ def test_cohort_optional_frames_load_when_present(tmp_path: Path):
     assert cohort.gene_frequency is not None
     assert len(cohort.gene_frequency) == 1
     assert cohort.variant_frequency is not None
+    assert cohort.rna_expression is not None
+    assert cohort.mirna_expression is not None
+    assert cohort.methylation_beta is not None
+    assert cohort.copy_number_segments is not None
+    assert cohort.gene_copy_number is not None
+    assert cohort.protein_expression is not None
 
 
 def test_cohort_provenance_parses_json(tmp_path: Path):
@@ -99,6 +117,12 @@ def test_cohort_summary_counts_rows(tmp_path: Path):
     assert s["n_samples"] == 2
     assert s["n_gene_frequency"] == 1
     assert s["n_variant_frequency"] == 1
+    assert s["n_rna_expression"] == 1
+    assert s["n_mirna_expression"] == 1
+    assert s["n_methylation_beta"] == 1
+    assert s["n_copy_number_segments"] == 1
+    assert s["n_gene_copy_number"] == 1
+    assert s["n_protein_expression"] == 1
 
 
 def test_repeated_access_is_cached(tmp_path: Path):

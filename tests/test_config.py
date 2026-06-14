@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from tcga_pull.config import CohortSpec, from_flags, load_yaml, read_projects_file
+from tcga_pull.config import (
+    CohortSpec,
+    OptionalOmicsSpec,
+    from_flags,
+    load_yaml,
+    read_projects_file,
+)
 
 
 def _find_leaf(flt: dict, field: str) -> dict | None:
@@ -112,6 +118,76 @@ def test_yaml_with_recipes(tmp_path: Path):
     assert spec.recipes == ["variants", "samples", "frequency"]
 
 
+def test_yaml_with_optional_omics(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: x\n"
+        "out_dir: /tmp/out\n"
+        "filters:\n"
+        "  project: [TCGA-BRCA, TCGA-LUAD]\n"
+        "  data_category: Simple Nucleotide Variation\n"
+        "optional_omics:\n"
+        "  - name: rna_gene_expression_star_counts\n"
+        "    notes: RNA counts\n"
+        "    filters:\n"
+        "      data_category: Transcriptome Profiling\n"
+        "      data_type: Gene Expression Quantification\n"
+        "      workflow: STAR - Counts\n"
+    )
+    spec = load_yaml(yaml_path)
+
+    assert len(spec.optional_omics) == 1
+    assert spec.optional_omics[0].name == "rna_gene_expression_star_counts"
+
+    omics = spec.optional_omics_cohort("rna_gene_expression_star_counts")
+    assert omics.name == "x__rna_gene_expression_star_counts"
+    assert omics.filters["project"] == ["TCGA-BRCA", "TCGA-LUAD"]
+    assert omics.filters["data_category"] == "Transcriptome Profiling"
+    assert omics.filters["data_type"] == "Gene Expression Quantification"
+    assert omics.filters["workflow"] == "STAR - Counts"
+
+    flt = omics.resolve_filter()
+    project_clause = _find_leaf(flt, "cases.project.project_id")
+    assert project_clause is not None
+    assert project_clause["content"]["value"] == ["TCGA-BRCA", "TCGA-LUAD"]
+    workflow_clause = _find_leaf(flt, "analysis.workflow_type")
+    assert workflow_clause is not None
+    assert workflow_clause["content"]["value"] == ["STAR - Counts"]
+
+
+def test_optional_omics_can_override_parent_project():
+    spec = CohortSpec(
+        name="x",
+        out_dir=Path("/tmp"),
+        filters={"project": ["TCGA-BRCA"]},
+        optional_omics=[
+            OptionalOmicsSpec(
+                name="target_rna",
+                filters={
+                    "project": ["TARGET-AML"],
+                    "data_category": "Transcriptome Profiling",
+                },
+            )
+        ],
+    )
+
+    omics = spec.optional_omics_cohort("target_rna")
+
+    assert omics.filters["project"] == ["TARGET-AML"]
+
+
+def test_optional_omics_rejects_duplicate_names():
+    with pytest.raises(ValueError, match="duplicate optional omics"):
+        CohortSpec(
+            name="x",
+            out_dir=Path("/tmp"),
+            optional_omics=[
+                OptionalOmicsSpec(name="rna", filters={"data_category": "Transcriptome Profiling"}),
+                OptionalOmicsSpec(name="rna", filters={"data_category": "DNA Methylation"}),
+            ],
+        )
+
+
 def test_cohort_spec_rejects_unknown_recipe():
     with pytest.raises(ValueError, match="unknown recipe"):
         CohortSpec(name="x", out_dir=Path("/tmp"), recipes=["variants", "no_such_recipe"])
@@ -147,3 +223,49 @@ def test_yaml_limit_per_project(tmp_path: Path):
     yaml_path.write_text("name: x\nfilters: {project: TCGA-CHOL}\nlimit:\n  per_project: 5\n")
     spec = load_yaml(yaml_path)
     assert spec.limit.per_project == 5
+
+
+def test_yaml_processing_incremental(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: x\n"
+        "filters: {project: TCGA-CHOL}\n"
+        "processing:\n"
+        "  mode: incremental\n"
+        "  batch_size: 50\n"
+        "  delete_raw_after_processing: true\n"
+    )
+    spec = load_yaml(yaml_path)
+
+    assert spec.processing.mode == "incremental"
+    assert spec.processing.batch_size == 50
+    assert spec.processing.delete_raw_after_processing is True
+
+
+def test_yaml_recipe_options(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: x\n"
+        "filters: {project: TCGA-CHOL}\n"
+        "recipe_options:\n"
+        "  rna_expression:\n"
+        "    columns: [gene_id, gene_name, unstranded]\n"
+        "  copy_number:\n"
+        "    outputs: [segments]\n"
+    )
+    spec = load_yaml(yaml_path)
+
+    assert spec.recipe_options["rna_expression"]["columns"] == [
+        "gene_id",
+        "gene_name",
+        "unstranded",
+    ]
+    assert spec.recipe_options["copy_number"]["outputs"] == ["segments"]
+
+
+def test_yaml_processing_rejects_bad_mode(tmp_path: Path):
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text("name: x\nfilters: {project: TCGA-CHOL}\nprocessing: {mode: nope}\n")
+
+    with pytest.raises(ValueError, match=r"processing\.mode"):
+        load_yaml(yaml_path)

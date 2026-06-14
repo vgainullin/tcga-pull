@@ -20,12 +20,16 @@ from pathlib import Path
 import polars as pl
 import pytest
 from rich.console import Console
+from typer.testing import CliRunner
 
 from tcga_pull import load_cohort
+from tcga_pull.cli import app
 from tcga_pull.config import load_yaml
 from tcga_pull.gdc import GDCClient
 from tcga_pull.pipeline import fetch_preview
 from tcga_pull.pipeline import run as pipeline_run
+
+runner = CliRunner()
 
 # ---------------------------------------------------------------- @network
 
@@ -62,7 +66,7 @@ def test_preview_tiny_filter_returns_nonzero_counts(tmp_path: Path):
 
 @pytest.mark.download
 def test_pull_with_recipes_end_to_end(tmp_path: Path):
-    """Full pipeline against live GDC: pull -> variants -> samples -> frequency.
+    """CLI pull against live GDC: pull -> variants -> samples -> frequency.
 
     Uses --limit-per-project=1 across 3 small projects → ~3-5 MAFs, ~30 s wall.
     """
@@ -75,16 +79,22 @@ def test_pull_with_recipes_end_to_end(tmp_path: Path):
         "  data_format: MAF\n"
         "limit:\n"
         "  per_project: 1\n"
+        "processing:\n"
+        "  mode: incremental\n"
+        "  batch_size: 1\n"
+        "  delete_raw_after_processing: true\n"
         "recipes:\n"
         "  - variants\n"
         "  - samples\n"
         "  - frequency\n"
     )
-    spec = load_yaml(yaml_path, out_dir_override=tmp_path)
-    # Silence the pull's Rich output during the test
-    import io
 
-    pipeline_run(spec, console=Console(file=io.StringIO()))
+    result = runner.invoke(
+        app,
+        ["pull", str(yaml_path), "--out", str(tmp_path)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
 
     cohort = load_cohort(tmp_path / "ci_tiny")
 
@@ -126,9 +136,8 @@ def test_pull_with_recipes_end_to_end(tmp_path: Path):
     # Lineage was derived (not just project_id)
     lineages = set(cohort.samples["lineage"].to_list())
     # TCGA-CHOL → bile_duct, TCGA-DLBC → lymph_node, TCGA-ACC → adrenal
-    assert lineages & {"bile_duct", "lymph_node", "adrenal"}, (
-        f"expected curated tissue labels, got {lineages}"
-    )
+    expected_lineages = {"bile_duct", "lymph_node", "adrenal"}
+    assert expected_lineages <= lineages, f"expected curated tissue labels, got {lineages}"
 
     # primary_aliquot is exactly one per patient
     primaries_per_patient = (
@@ -142,3 +151,121 @@ def test_pull_with_recipes_end_to_end(tmp_path: Path):
     prov = cohort.provenance
     assert "filter" in prov
     assert prov["n_files"] >= 3
+    assert prov["processing"]["mode"] == "incremental"
+    assert prov["processing"]["delete_raw_after_processing"] is True
+
+
+@pytest.mark.download
+def test_pull_multiomics_smoke_end_to_end(tmp_path: Path):
+    """Tiny live-GDC smoke test for incremental multiomics recipes.
+
+    The config is generated in tmp_path, not checked into examples. CHOL has
+    small SNV/RNA/CNV/methylation coverage, and per_project=1 keeps the
+    download bounded for CI.
+    """
+    yaml_path = tmp_path / "ci_multiomics_smoke.yaml"
+    yaml_path.write_text(
+        "name: ci_multiomics_smoke\n"
+        "filters:\n"
+        "  project: TCGA-CHOL\n"
+        "limit:\n"
+        "  per_project: 1\n"
+        "processing:\n"
+        "  mode: incremental\n"
+        "  batch_size: 1\n"
+        "  delete_raw_after_processing: true\n"
+        "recipe_options:\n"
+        "  rna_expression:\n"
+        "    columns: [gene_id, gene_name, unstranded]\n"
+        "  copy_number:\n"
+        "    outputs: [segments]\n"
+        "recipes:\n"
+        "  - variants\n"
+        "  - samples\n"
+        "  - multiomics\n"
+        "gdc_filter:\n"
+        "  op: and\n"
+        "  content:\n"
+        "    - op: in\n"
+        "      content:\n"
+        "        field: cases.project.project_id\n"
+        "        value: [TCGA-CHOL]\n"
+        "    - op: or\n"
+        "      content:\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [Simple Nucleotide Variation]}\n"
+        "            - op: in\n"
+        "              content: {field: data_format, value: [MAF]}\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [Transcriptome Profiling]}\n"
+        "            - op: in\n"
+        "              content: {field: data_type, value: [Gene Expression Quantification]}\n"
+        "            - op: in\n"
+        "              content: {field: experimental_strategy, value: [RNA-Seq]}\n"
+        "            - op: in\n"
+        "              content: {field: analysis.workflow_type, value: [STAR - Counts]}\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [Copy Number Variation]}\n"
+        "            - op: in\n"
+        "              content: {field: data_type, value: [Copy Number Segment]}\n"
+        "        - op: and\n"
+        "          content:\n"
+        "            - op: in\n"
+        "              content: {field: data_category, value: [DNA Methylation]}\n"
+        "            - op: in\n"
+        "              content: {field: data_type, value: [Methylation Beta Value]}\n"
+    )
+    spec = load_yaml(yaml_path, out_dir_override=tmp_path)
+
+    import io
+
+    pipeline_run(spec, console=Console(file=io.StringIO()))
+    cohort = load_cohort(tmp_path / "ci_multiomics_smoke")
+
+    assert len(cohort.variants) > 0
+    assert len(cohort.samples) >= 1
+    assert cohort.rna_expression is not None
+    assert cohort.copy_number_segments is not None
+    assert cohort.methylation_beta is not None
+    assert cohort.gene_copy_number is None
+
+    assert len(cohort.rna_expression) > 0
+    assert len(cohort.copy_number_segments) > 0
+    assert len(cohort.methylation_beta) > 0
+
+    assert cohort.rna_expression.columns == [
+        "case_id",
+        "submitter_id",
+        "file_id",
+        "file_name",
+        "data_type",
+        "experimental_strategy",
+        "workflow_type",
+        "gene_id",
+        "gene_name",
+        "unstranded",
+    ]
+    for col in ("case_id", "submitter_id", "chrom", "segment_mean"):
+        assert col in cohort.copy_number_segments.columns
+    for col in ("case_id", "submitter_id", "probe_id", "beta_value"):
+        assert col in cohort.methylation_beta.columns
+
+    manifest = cohort.manifest
+    handled_omics = manifest.filter(
+        pl.col("data_category").is_in(
+            ["Transcriptome Profiling", "Copy Number Variation", "DNA Methylation"]
+        )
+    )
+    assert handled_omics.height > 0
+    assert set(handled_omics["status"].to_list()) == {"processed_deleted"}
+    assert handled_omics["local_path"].null_count() == handled_omics.height
+
+    prov = cohort.provenance
+    assert prov["processing"]["mode"] == "incremental"
+    assert prov["processing"]["delete_raw_after_processing"] is True

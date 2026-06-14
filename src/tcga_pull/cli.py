@@ -34,9 +34,13 @@ def _spec_from_args(
     sample_type: list[str] | None,
     n_processes: int,
     limit_per_project: int | None = None,
+    omics: str | None = None,
+    incremental: bool | None = None,
+    processing_batch_size: int | None = None,
+    delete_raw_after_processing: bool | None = None,
 ):
     try:
-        return services.build_cohort_spec(
+        spec = services.build_cohort_spec(
             services.CohortBuildOptions(
                 config=config,
                 name=name,
@@ -51,8 +55,14 @@ def _spec_from_args(
                 sample_type=sample_type,
                 n_processes=n_processes,
                 limit_per_project=limit_per_project,
+                incremental=incremental,
+                processing_batch_size=processing_batch_size,
+                delete_raw_after_processing=delete_raw_after_processing,
             )
         )
+        if omics is not None:
+            spec = services.select_optional_omics(spec, omics)
+        return spec
     except services.SpecBuildError as e:
         console.print(f"[yellow]{e}[/yellow]")
         raise typer.Exit(2) from None
@@ -88,6 +98,28 @@ def pull(
         "--limit-per-project",
         help="Cap at N cases per GDC project (deterministic by submitter_id sort).",
     ),
+    omics: str | None = typer.Option(
+        None,
+        "--omics",
+        help="Pull a named optional_omics entry from the YAML instead of the primary cohort.",
+    ),
+    incremental: bool | None = typer.Option(
+        None,
+        "--incremental/--no-incremental",
+        help="Download/process in batches for batch-aware recipes. "
+        "Unset leaves the YAML's processing.mode untouched.",
+    ),
+    processing_batch_size: int | None = typer.Option(
+        None,
+        "--processing-batch-size",
+        help="Files per incremental download/process batch.",
+    ),
+    delete_raw_after_processing: bool | None = typer.Option(
+        None,
+        "--delete-raw-after-processing/--no-delete-raw-after-processing",
+        help="Delete raw files handled by incremental recipes after their parquet output is written. "
+        "Unset leaves the YAML's processing.delete_raw_after_processing untouched.",
+    ),
 ) -> None:
     """Build a cohort from a YAML config or flags. Run `preview` first to dry-run."""
     spec = _spec_from_args(
@@ -104,6 +136,10 @@ def pull(
         sample_type=sample_type,
         n_processes=n_processes,
         limit_per_project=limit_per_project,
+        omics=omics,
+        incremental=incremental,
+        processing_batch_size=processing_batch_size,
+        delete_raw_after_processing=delete_raw_after_processing,
     )
     services.run_cohort(spec, console=console)
 
@@ -119,6 +155,11 @@ def preview(
     experimental_strategy: list[str] | None = typer.Option(None, "--strategy"),
     workflow: list[str] | None = typer.Option(None, "--workflow"),
     sample_type: list[str] | None = typer.Option(None, "--sample-type"),
+    omics: str | None = typer.Option(
+        None,
+        "--omics",
+        help="Preview a named optional_omics entry from the YAML instead of the primary cohort.",
+    ),
 ) -> None:
     """Show what a filter would pull, without downloading."""
     spec = _spec_from_args(
@@ -134,9 +175,39 @@ def preview(
         workflow=workflow,
         sample_type=sample_type,
         n_processes=4,
+        omics=omics,
     )
     p = services.preview_cohort(spec)
     pipeline.render_preview(p, console=console)
+
+
+@app.command("omics")
+def omics_cmd(
+    config: Path = typer.Argument(..., exists=True, dir_okay=False, help="Cohort YAML."),
+) -> None:
+    """List optional omics declared by a cohort YAML."""
+    spec = _spec_from_args(
+        config,
+        name=None,
+        out=None,
+        project=None,
+        projects_file=None,
+        data_type=None,
+        data_category=None,
+        data_format=None,
+        experimental_strategy=None,
+        workflow=None,
+        sample_type=None,
+        n_processes=4,
+    )
+    t = Table(title=f"Optional omics: [bold]{spec.name}[/bold]")
+    t.add_column("name")
+    t.add_column("filters")
+    t.add_column("notes")
+    for item in spec.optional_omics:
+        filters = ", ".join(f"{k}={v}" for k, v in item.filters.items())
+        t.add_row(item.name, filters, item.notes or "")
+    console.print(t)
 
 
 @app.command()
@@ -305,6 +376,43 @@ def frequency_cmd(
                 f"{row['freq']:.1%}",
             )
         console.print(t)
+
+
+@app.command("multiomics")
+def multiomics_cmd(
+    cohort_dir: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        help="A cohort dir with manifest.parquet and downloaded non-SNV omics files.",
+    ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        exists=True,
+        dir_okay=False,
+        help="Cohort YAML whose recipe_options should be applied.",
+    ),
+) -> None:
+    """Build processed RNA, miRNA, methylation, CNV, and RPPA parquet outputs."""
+    recipe_options = {}
+    if config is not None:
+        from .config import load_yaml
+
+        recipe_options = load_yaml(config).recipe_options
+    outputs = services.write_multiomics_recipe(cohort_dir, recipe_options=recipe_options)
+    console.print("[green]wrote multiomics parquets[/green]")
+    for path in (
+        outputs.rna_expression,
+        outputs.mirna_expression,
+        outputs.methylation_beta,
+        outputs.copy_number_segments,
+        outputs.gene_copy_number,
+        outputs.protein_expression,
+    ):
+        if path is not None:
+            console.print(f"  {path}")
 
 
 @app.command("bench")

@@ -91,3 +91,75 @@ recipes:
   - variants
   - samples
   - frequency
+
+# Optional patient-level omics that can be pulled as separate cohorts and
+# merged downstream by case_id / submitter_id. They inherit the project list
+# above unless an entry declares its own `project` filter.
+#
+# Preview one:
+#
+#     tcga-pull preview examples/pancancer_snv.yaml --omics rna_gene_expression_star_counts
+#
+# Pull one:
+#
+#     tcga-pull pull examples/pancancer_snv.yaml --omics rna_gene_expression_star_counts
+optional_omics:
+  - name: rna_gene_expression_star_counts
+    notes: GDC harmonized gene-level RNA-seq counts; 17,212/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - rna_expression
+    filters:
+      data_category: Transcriptome Profiling
+      data_type: Gene Expression Quantification
+      experimental_strategy: RNA-Seq
+      workflow: STAR - Counts
+
+  - name: gene_level_copy_number
+    notes: Gene-level CNV scores; 15,108/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - copy_number
+    filters:
+      data_category: Copy Number Variation
+      data_type: Gene Level Copy Number
+
+  - name: copy_number_segments
+    notes: Unmasked or legacy segment-level CNV; 14,678/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - copy_number
+    filters:
+      data_category: Copy Number Variation
+      data_type: Copy Number Segment
+
+  - name: mirna_expression
+    notes: Patient-level miRNA abundance; 13,689/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - mirna_expression
+    filters:
+      data_category: Transcriptome Profiling
+      data_type: miRNA Expression Quantification
+      experimental_strategy: miRNA-Seq
+
+  - name: dna_methylation_beta
+    notes: DNA methylation beta values; 12,724/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - methylation
+    filters:
+      data_category: DNA Methylation
+      data_type: Methylation Beta Value
+
+  - name: masked_copy_number_segments
+    notes: Masked segment-level CNV; 10,104/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - copy_number
+    filters:
+      data_category: Copy Number Variation
+      data_type: Masked Copy Number Segment
+
+  - name: protein_expression_rppa
+    notes: TCGA RPPA protein expression; 7,233/19,552 SNV cases overlapped in the metadata check.
+    recipes:
+      - protein_expression
+    filters:
+      data_category: Proteome Profiling
+      data_type: Protein Expression Quantification
+      experimental_strategy: Reverse Phase Protein Array

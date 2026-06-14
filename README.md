@@ -54,6 +54,59 @@ gene_frequency.parquet      variant_frequency.parquet
 
 The full GDC filter grammar, the YAML schema, and a 55-project pancancer
 worked example are in [`examples/pancancer_snv.yaml`](examples/pancancer_snv.yaml).
+That pancancer example also declares optional omics add-ons that can be pulled
+separately and merged downstream by `case_id` or `submitter_id`:
+
+```sh
+tcga-pull omics examples/pancancer_snv.yaml
+tcga-pull preview examples/pancancer_snv.yaml --omics rna_gene_expression_star_counts
+tcga-pull pull examples/pancancer_snv.yaml --omics rna_gene_expression_star_counts
+```
+
+For one processed download containing SNVs plus all declared omics file types, use
+[`examples/pancancer_multiomics.yaml`](examples/pancancer_multiomics.yaml):
+
+```sh
+tcga-pull preview examples/pancancer_multiomics.yaml
+tcga-pull pull examples/pancancer_multiomics.yaml
+```
+
+That config uses incremental processing: each download batch is converted into
+recipe-specific parquet parts, handled non-SNV raw files are deleted, and the
+final top-level omics parquets are assembled from those parts. For custom
+cohorts, the same behavior can be enabled with:
+
+```yaml
+processing:
+  mode: incremental
+  batch_size: 200
+  delete_raw_after_processing: true
+```
+
+Recipe-specific reduction options can shrink processed outputs further:
+
+```yaml
+recipe_options:
+  rna_expression:
+    columns: [gene_id, gene_name, gene_type, unstranded]
+  methylation:
+    probes_file: ./probe_panels/immune_probes.txt
+  copy_number:
+    outputs: [segments]  # choose from: segments, gene
+```
+
+The same mode can be enabled from flags for ad hoc pulls:
+
+```sh
+tcga-pull pull cohort.yaml --incremental --processing-batch-size 200 --delete-raw-after-processing
+```
+
+If the raw files are already downloaded, build just the non-SNV omics parquets
+with:
+
+```sh
+tcga-pull multiomics ./cohorts/pancancer_multiomics
+```
 
 ## Python API
 
@@ -66,12 +119,13 @@ cohort.manifest
 cohort.variants
 cohort.samples
 cohort.gene_frequency
+cohort.rna_expression
+cohort.methylation_beta
 cohort.provenance
 ```
 
-Recipe outputs (`variants`, `samples`, `gene_frequency`, `variant_frequency`)
-return `None` if the recipe didn't run. Column-by-column schemas in
-[SCHEMAS.md](SCHEMAS.md).
+Optional recipe outputs return `None` if the recipe didn't run. Column-by-column
+schemas in [SCHEMAS.md](SCHEMAS.md).
 
 ## Shipped recipes
 
@@ -80,10 +134,15 @@ return `None` if the recipe didn't run. Column-by-column schemas in
 | `variants` | `variants.parquet` | one per (variant × tumor aliquot) |
 | `samples` | `samples.parquet` | one per case (clinical + tissue + burden) |
 | `frequency` | `gene_frequency.parquet`, `variant_frequency.parquet` | per (gene or variant, tissue) |
+| `rna_expression` | `rna_expression.parquet` | one per (case × gene) |
+| `mirna_expression` | `mirna_expression.parquet` | one per (case × miRNA) |
+| `methylation` | `methylation_beta.parquet` | one per (case × methylation probe) |
+| `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | segment-level and gene-level CNV |
+| `protein_expression` | `protein_expression.parquet` | one per (case × RPPA target) |
+| `multiomics` | all non-SNV omics parquets above | batch processor |
 
-All three are somatic-SNV-specific. The pull / restructure / clinical /
-manifest layer is data-type-agnostic; new recipes plug in through
-`pipeline.RECIPE_REGISTRY`.
+The pull / restructure / clinical / manifest layer is data-type-agnostic; new
+recipes plug in through `pipeline.RECIPE_REGISTRY`.
 
 ## Scope
 
