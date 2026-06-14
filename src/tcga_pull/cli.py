@@ -386,9 +386,22 @@ def multiomics_cmd(
         file_okay=False,
         help="A cohort dir with manifest.parquet and downloaded non-SNV omics files.",
     ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        exists=True,
+        dir_okay=False,
+        help="Cohort YAML whose recipe_options should be applied.",
+    ),
 ) -> None:
     """Build processed RNA, miRNA, methylation, CNV, and RPPA parquet outputs."""
-    outputs = services.write_multiomics_recipe(cohort_dir)
+    recipe_options = {}
+    if config is not None:
+        from .config import load_yaml
+
+        recipe_options = load_yaml(config).recipe_options
+    outputs = services.write_multiomics_recipe(cohort_dir, recipe_options=recipe_options)
     console.print("[green]wrote multiomics parquets[/green]")
     for path in (
         outputs.rna_expression,
@@ -398,7 +411,8 @@ def multiomics_cmd(
         outputs.gene_copy_number,
         outputs.protein_expression,
     ):
-        console.print(f"  {path}")
+        if path is not None:
+            console.print(f"  {path}")
 
 
 @app.command("bench")

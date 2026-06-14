@@ -105,90 +105,64 @@ MULTIOMICS_RECIPE_NAMES = {
 }
 
 
-def write_rna_expression(cohort_dir: Path) -> Path:
-    cohort_dir = Path(cohort_dir)
-    rows = _manifest_rows(
-        cohort_dir,
-        data_category="Transcriptome Profiling",
-        data_type="Gene Expression Quantification",
-        experimental_strategy="RNA-Seq",
-    )
-    out = cohort_dir / "rna_expression.parquet"
-    _write_stream(out, (_rna_frame(row) for row in rows), RNA_SCHEMA)
-    return out
+def _write_standard_outputs(
+    cohort_dir: Path,
+    recipes: Iterable[str],
+    recipe_options: dict[str, Any] | None,
+) -> dict[str, Path]:
+    """One-shot (non-incremental) write of the selected recipe outputs from the
+    full manifest, honoring recipe_options (column reduction, methylation probe
+    allowlist, copy-number output selection) exactly as the incremental path does.
+
+    Returns {output_name: path}. Outputs disabled via recipe_options (e.g. a
+    deselected copy-number output) are absent from the mapping and no parquet is
+    written for them.
+    """
+    records = _manifest_records(Path(cohort_dir))
+    selected = _expanded_recipes(recipes)
+    written: dict[str, Path] = {}
+    for output_name, schema, frames in _recipe_frame_iterators(
+        records, selected, recipe_options or {}
+    ):
+        out = Path(cohort_dir) / f"{output_name}.parquet"
+        _write_stream(out, frames, schema)
+        written[output_name] = out
+    return written
 
 
-def write_mirna_expression(cohort_dir: Path) -> Path:
-    cohort_dir = Path(cohort_dir)
-    rows = _manifest_rows(
-        cohort_dir,
-        data_category="Transcriptome Profiling",
-        data_type="miRNA Expression Quantification",
-        experimental_strategy="miRNA-Seq",
-    )
-    out = cohort_dir / "mirna_expression.parquet"
-    _write_stream(out, (_mirna_frame(row) for row in rows), MIRNA_SCHEMA)
-    return out
+def write_rna_expression(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    return _write_standard_outputs(cohort_dir, ["rna_expression"], recipe_options)["rna_expression"]
 
 
-def write_methylation_beta(cohort_dir: Path) -> Path:
-    cohort_dir = Path(cohort_dir)
-    rows = _manifest_rows(
-        cohort_dir,
-        data_category="DNA Methylation",
-        data_type="Methylation Beta Value",
-    )
-    out = cohort_dir / "methylation_beta.parquet"
-    _write_stream(out, (_methylation_frame(row) for row in rows), METHYLATION_SCHEMA)
-    return out
-
-
-def write_copy_number(cohort_dir: Path) -> tuple[Path, Path]:
-    cohort_dir = Path(cohort_dir)
-    segment_rows = list(
-        _manifest_rows(
-            cohort_dir,
-            data_category="Copy Number Variation",
-            data_type=["Copy Number Segment", "Masked Copy Number Segment"],
-        )
-    )
-    gene_rows = _manifest_rows(
-        cohort_dir,
-        data_category="Copy Number Variation",
-        data_type="Gene Level Copy Number",
-    )
-
-    segments_out = cohort_dir / "copy_number_segments.parquet"
-    gene_out = cohort_dir / "gene_copy_number.parquet"
-    _write_stream(
-        segments_out, (_cnv_segment_frame(row) for row in segment_rows), CNV_SEGMENT_SCHEMA
-    )
-    _write_stream(gene_out, (_gene_cnv_frame(row) for row in gene_rows), GENE_CNV_SCHEMA)
-    return segments_out, gene_out
-
-
-def write_protein_expression(cohort_dir: Path) -> Path:
-    cohort_dir = Path(cohort_dir)
-    rows = _manifest_rows(
-        cohort_dir,
-        data_category="Proteome Profiling",
-        data_type="Protein Expression Quantification",
-    )
-    out = cohort_dir / "protein_expression.parquet"
-    _write_stream(out, (_protein_frame(row) for row in rows), PROTEIN_SCHEMA)
-    return out
-
-
-def write_multiomics(cohort_dir: Path) -> list[Path]:
-    cnv_segments, gene_cnv = write_copy_number(cohort_dir)
-    return [
-        write_rna_expression(cohort_dir),
-        write_mirna_expression(cohort_dir),
-        write_methylation_beta(cohort_dir),
-        cnv_segments,
-        gene_cnv,
-        write_protein_expression(cohort_dir),
+def write_mirna_expression(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    return _write_standard_outputs(cohort_dir, ["mirna_expression"], recipe_options)[
+        "mirna_expression"
     ]
+
+
+def write_methylation_beta(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    return _write_standard_outputs(cohort_dir, ["methylation"], recipe_options)["methylation_beta"]
+
+
+def write_copy_number(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> tuple[Path | None, Path | None]:
+    """Segment- and gene-level CNV. Either output may be None if deselected via
+    `recipe_options.copy_number.outputs`."""
+    written = _write_standard_outputs(cohort_dir, ["copy_number"], recipe_options)
+    return written.get("copy_number_segments"), written.get("gene_copy_number")
+
+
+def write_protein_expression(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> Path:
+    return _write_standard_outputs(cohort_dir, ["protein_expression"], recipe_options)[
+        "protein_expression"
+    ]
+
+
+def write_multiomics(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> list[Path]:
+    return list(_write_standard_outputs(cohort_dir, ["multiomics"], recipe_options).values())
 
 
 def write_multiomics_parts(
@@ -235,6 +209,28 @@ def record_handled_by_multiomics(record: dict[str, Any], recipes: Iterable[str])
     return any(_matches_output(record, output_name) for output_name in selected)
 
 
+def _manifest_records(cohort_dir: Path) -> list[dict[str, Any]]:
+    manifest_path = cohort_dir / "manifest.parquet"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing {manifest_path} - run `tcga-pull pull` first")
+
+    df = pd.read_parquet(manifest_path)
+    if df.empty:
+        return []
+
+    mask = pd.Series(True, index=df.index)
+    if "status" in df.columns:
+        mask &= df["status"] == "ok"
+    mask &= df["local_path"].notna()
+
+    records: list[dict[str, Any]] = []
+    for row in df[mask].to_dict("records"):
+        path = row.get("local_path")
+        if path and Path(path).exists():
+            records.append(cast(dict[str, Any], row))
+    return records
+
+
 def _manifest_rows(
     cohort_dir: Path,
     *,
@@ -242,28 +238,17 @@ def _manifest_rows(
     data_type: str | Iterable[str],
     experimental_strategy: str | None = None,
 ) -> Iterator[dict[str, Any]]:
-    manifest_path = cohort_dir / "manifest.parquet"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"missing {manifest_path} - run `tcga-pull pull` first")
-
-    df = pd.read_parquet(manifest_path)
-    if df.empty:
-        return
-
     data_types = {data_type} if isinstance(data_type, str) else set(data_type)
-    mask = pd.Series(True, index=df.index)
-    if "status" in df.columns:
-        mask &= df["status"] == "ok"
-    mask &= df["local_path"].notna()
-    mask &= df["data_category"] == data_category
-    mask &= df["data_type"].isin(data_types)
-    if experimental_strategy is not None and "experimental_strategy" in df.columns:
-        mask &= df["experimental_strategy"] == experimental_strategy
-
-    for row in df[mask].to_dict("records"):
-        path = row.get("local_path")
-        if path and Path(path).exists():
-            yield row
+    for row in _manifest_records(cohort_dir):
+        if row.get("data_category") != data_category:
+            continue
+        if row.get("data_type") not in data_types:
+            continue
+        if experimental_strategy is not None and row.get("experimental_strategy") != (
+            experimental_strategy
+        ):
+            continue
+        yield row
 
 
 def _expanded_recipes(recipes: Iterable[str]) -> set[str]:

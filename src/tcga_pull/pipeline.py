@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -215,7 +216,7 @@ def run(
         if recipe is None:  # already validated in CohortSpec.__post_init__
             continue
         console.print(f"\n[cyan]==> recipe: {recipe_name}[/cyan]")
-        recipe(cohort_dir)
+        recipe(cohort_dir, spec.recipe_options)
 
     return cohort_dir
 
@@ -327,7 +328,7 @@ def _run_incremental(
         if recipe is None:
             continue
         console.print(f"\n[cyan]==> recipe: {recipe_name}[/cyan]")
-        recipe(cohort_dir)
+        recipe(cohort_dir, spec.recipe_options)
 
     return cohort_dir
 
@@ -346,63 +347,67 @@ def _delete_batch_raw(records: list[dict], *, recipes: list[str]) -> None:
         record["status"] = "processed_deleted"
 
 
-def _recipe_variants(cohort_dir: Path) -> None:
+def _recipe_variants(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .variants_polars import write_variants
 
     write_variants(cohort_dir)
 
 
-def _recipe_samples(cohort_dir: Path) -> None:
+def _recipe_samples(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .samples_polars import write_samples
 
     write_samples(cohort_dir)
 
 
-def _recipe_frequency(cohort_dir: Path) -> None:
+def _recipe_frequency(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .frequency import write_gene_frequency, write_variant_frequency
 
     write_gene_frequency(cohort_dir)
     write_variant_frequency(cohort_dir)
 
 
-def _recipe_rna_expression(cohort_dir: Path) -> None:
+def _recipe_rna_expression(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .multiomics import write_rna_expression
 
-    write_rna_expression(cohort_dir)
+    write_rna_expression(cohort_dir, recipe_options)
 
 
-def _recipe_mirna_expression(cohort_dir: Path) -> None:
+def _recipe_mirna_expression(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> None:
     from .multiomics import write_mirna_expression
 
-    write_mirna_expression(cohort_dir)
+    write_mirna_expression(cohort_dir, recipe_options)
 
 
-def _recipe_methylation(cohort_dir: Path) -> None:
+def _recipe_methylation(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .multiomics import write_methylation_beta
 
-    write_methylation_beta(cohort_dir)
+    write_methylation_beta(cohort_dir, recipe_options)
 
 
-def _recipe_copy_number(cohort_dir: Path) -> None:
+def _recipe_copy_number(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .multiomics import write_copy_number
 
-    write_copy_number(cohort_dir)
+    write_copy_number(cohort_dir, recipe_options)
 
 
-def _recipe_protein_expression(cohort_dir: Path) -> None:
+def _recipe_protein_expression(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> None:
     from .multiomics import write_protein_expression
 
-    write_protein_expression(cohort_dir)
+    write_protein_expression(cohort_dir, recipe_options)
 
 
-def _recipe_multiomics(cohort_dir: Path) -> None:
+def _recipe_multiomics(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .multiomics import write_multiomics
 
-    write_multiomics(cohort_dir)
+    write_multiomics(cohort_dir, recipe_options)
 
 
 # Name → function. Names must match KNOWN_RECIPES in config.py.
-RECIPE_REGISTRY: dict[str, Callable[[Path], None]] = {
+RECIPE_REGISTRY: dict[str, Callable[[Path, dict[str, Any] | None], None]] = {
     "variants": _recipe_variants,
     "samples": _recipe_samples,
     "frequency": _recipe_frequency,

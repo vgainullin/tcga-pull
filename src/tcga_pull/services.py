@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from rich.console import Console
 
@@ -84,8 +84,8 @@ class MultiomicsOutputs:
     rna_expression: Path
     mirna_expression: Path
     methylation_beta: Path
-    copy_number_segments: Path
-    gene_copy_number: Path
+    copy_number_segments: Path | None
+    gene_copy_number: Path | None
     protein_expression: Path
 
 
@@ -270,7 +270,11 @@ def write_frequency_recipe(cohort_dir: Path) -> FrequencyOutputs:
     )
 
 
-def write_multiomics_recipe(cohort_dir: Path) -> MultiomicsOutputs:
+def write_multiomics_recipe(
+    cohort_dir: Path,
+    *,
+    recipe_options: dict[str, Any] | None = None,
+) -> MultiomicsOutputs:
     from .multiomics import (
         write_copy_number,
         write_methylation_beta,
@@ -279,14 +283,14 @@ def write_multiomics_recipe(cohort_dir: Path) -> MultiomicsOutputs:
         write_rna_expression,
     )
 
-    copy_number_segments, gene_copy_number = write_copy_number(cohort_dir)
+    copy_number_segments, gene_copy_number = write_copy_number(cohort_dir, recipe_options)
     return MultiomicsOutputs(
-        rna_expression=write_rna_expression(cohort_dir),
-        mirna_expression=write_mirna_expression(cohort_dir),
-        methylation_beta=write_methylation_beta(cohort_dir),
+        rna_expression=write_rna_expression(cohort_dir, recipe_options),
+        mirna_expression=write_mirna_expression(cohort_dir, recipe_options),
+        methylation_beta=write_methylation_beta(cohort_dir, recipe_options),
         copy_number_segments=copy_number_segments,
         gene_copy_number=gene_copy_number,
-        protein_expression=write_protein_expression(cohort_dir),
+        protein_expression=write_protein_expression(cohort_dir, recipe_options),
     )
 
 
