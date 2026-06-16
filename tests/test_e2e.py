@@ -25,6 +25,7 @@ from typer.testing import CliRunner
 from tcga_pull import load_cohort
 from tcga_pull.cli import app
 from tcga_pull.config import load_yaml
+from tcga_pull.coverage import build_coverage_matrix
 from tcga_pull.gdc import GDCClient
 from tcga_pull.pipeline import fetch_preview
 from tcga_pull.pipeline import run as pipeline_run
@@ -59,6 +60,54 @@ def test_preview_tiny_filter_returns_nonzero_counts(tmp_path: Path):
     assert preview.n_files > 0, "TCGA-CHOL should have SNV MAFs"
     assert preview.n_cases > 0
     assert preview.total_size > 0
+
+
+@pytest.mark.network
+def test_coverage_matrix_live_gdc_chol_classifies_supported_and_raw_only():
+    matrix = build_coverage_matrix(projects=["TCGA-CHOL"])
+
+    assert matrix.project_ids == ("TCGA-CHOL",)
+    assert len(matrix.rows) >= 10
+    assert {row["access"] for row in matrix.rows} == {"open"}
+
+    snv_maf = [
+        row
+        for row in matrix.rows
+        if row["data_category"] == "Simple Nucleotide Variation" and row["data_format"] == "MAF"
+    ]
+    assert snv_maf, "TCGA-CHOL should expose open-access SNV MAF files"
+    assert {row["support_status"] for row in snv_maf} == {"supported"}
+    assert {row["recipe"] for row in snv_maf} == {"variants"}
+
+    raw_only = [row for row in matrix.rows if row["support_status"] == "raw_only"]
+    assert raw_only, "coverage matrix should expose gaps as raw_only rows"
+    assert any(row["data_category"] in {"Biospecimen", "Clinical"} for row in raw_only)
+
+
+@pytest.mark.network
+def test_coverage_command_writes_live_gdc_outputs(tmp_path: Path):
+    result = runner.invoke(
+        app,
+        ["coverage", "--program", "TCGA", "--project", "TCGA-CHOL", "--out-dir", str(tmp_path)],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "projects=1" in result.output
+    assert "supported=" in result.output
+    assert "raw_only=" in result.output
+
+    parquet_path = tmp_path / "tcga_open_access_coverage_matrix.parquet"
+    markdown_path = tmp_path / "tcga_open_access_coverage_matrix.md"
+    assert parquet_path.exists()
+    assert markdown_path.exists()
+
+    df = pl.read_parquet(parquet_path)
+    assert df.height >= 10
+    assert set(df["project_id"].to_list()) == {"TCGA-CHOL"}
+    assert "supported" in set(df["support_status"].to_list())
+    assert "raw_only" in set(df["support_status"].to_list())
+    assert "TCGA-CHOL" in markdown_path.read_text()
 
 
 # --------------------------------------------------------------- @download
