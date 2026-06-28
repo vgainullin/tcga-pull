@@ -5,6 +5,7 @@ turn into CohortBuildOptions — the service layer is tested in test_services.py
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from typer.testing import CliRunner
 
@@ -73,3 +74,54 @@ def test_pull_no_incremental_flag_forces_standard_over_yaml(tmp_path: Path, monk
 
     assert result.exit_code == 0, result.output
     assert captured[0].processing.mode == "standard"
+
+
+def test_dataset_command_passes_options_to_service(tmp_path: Path, monkeypatch):
+    cohort = tmp_path / "cohort"
+    cohort.mkdir()
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: c\n"
+        "filters: {project: TCGA-BRCA}\n"
+        "recipe_options:\n"
+        "  model_dataset:\n"
+        "    label_column: lineage\n"
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_write_model_dataset_recipe(*args: Any, **kwargs: Any):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        out = tmp_path / "model_dataset"
+        return services.ModelDatasetOutputs(
+            path=out,
+            manifest=out / "manifest.json",
+            samples=out / "samples.parquet",
+            feature_index=out / "feature_index.parquet",
+            matrices={"snv": out / "snv.parquet"},
+        )
+
+    monkeypatch.setattr(services, "write_model_dataset_recipe", fake_write_model_dataset_recipe)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "dataset",
+            str(cohort),
+            "--config",
+            str(yaml_path),
+            "--modality",
+            "snv",
+            "--min-class-count",
+            "1",
+            "--seed",
+            "42",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"] == (cohort,)
+    assert captured["kwargs"]["recipe_options"]["model_dataset"]["label_column"] == "lineage"
+    assert captured["kwargs"]["modalities"] == ["snv"]
+    assert captured["kwargs"]["min_class_count"] == 1
+    assert captured["kwargs"]["seed"] == 42

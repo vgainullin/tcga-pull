@@ -26,6 +26,54 @@ import polars as pl
 
 
 @dataclass
+class ModelDataset:
+    """Read-only view over <cohort>/model_dataset outputs."""
+
+    path: Path
+
+    def _read_optional(self, fname: str) -> pl.DataFrame | None:
+        p = self.path / fname
+        return pl.read_parquet(p) if p.exists() else None
+
+    @cached_property
+    def samples(self) -> pl.DataFrame:
+        return pl.read_parquet(self.path / "samples.parquet")
+
+    @cached_property
+    def feature_index(self) -> pl.DataFrame:
+        return pl.read_parquet(self.path / "feature_index.parquet")
+
+    @cached_property
+    def snv(self) -> pl.DataFrame | None:
+        return self._read_optional("snv.parquet")
+
+    @cached_property
+    def rna_expression(self) -> pl.DataFrame | None:
+        return self._read_optional("rna_expression.parquet")
+
+    @cached_property
+    def methylation_beta(self) -> pl.DataFrame | None:
+        return self._read_optional("methylation_beta.parquet")
+
+    @cached_property
+    def gene_copy_number(self) -> pl.DataFrame | None:
+        return self._read_optional("gene_copy_number.parquet")
+
+    @cached_property
+    def mirna_expression(self) -> pl.DataFrame | None:
+        return self._read_optional("mirna_expression.parquet")
+
+    @cached_property
+    def protein_expression(self) -> pl.DataFrame | None:
+        return self._read_optional("protein_expression.parquet")
+
+    @cached_property
+    def manifest(self) -> dict[str, Any]:
+        p = self.path / "manifest.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+
+@dataclass
 class Cohort:
     """Read-only view over a tcga-pull cohort directory.
 
@@ -121,6 +169,11 @@ class Cohort:
     def protein_expression(self) -> pl.DataFrame | None:
         return self._read_optional("protein_expression.parquet")
 
+    @cached_property
+    def model_dataset(self) -> ModelDataset | None:
+        p = self.path / "model_dataset"
+        return ModelDataset(p) if p.exists() else None
+
     # --- provenance ------------------------------------------------------------
 
     @cached_property
@@ -152,6 +205,10 @@ class Cohort:
         ):
             df = getattr(self, opt)
             out[f"n_{opt}"] = len(df) if df is not None else 0
+        model_dataset = self.model_dataset
+        out["n_model_dataset_samples"] = (
+            len(model_dataset.samples) if model_dataset is not None else 0
+        )
         return out
 
 

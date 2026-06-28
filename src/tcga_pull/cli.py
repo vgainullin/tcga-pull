@@ -415,6 +415,78 @@ def multiomics_cmd(
             console.print(f"  {path}")
 
 
+@app.command("dataset")
+def dataset_cmd(
+    cohort_dir: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        help="A processed cohort dir with samples.parquet and one or more omics parquets.",
+    ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        exists=True,
+        dir_okay=False,
+        help="Cohort YAML whose recipe_options.model_dataset should be applied.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Output directory. Defaults to <cohort>/model_dataset.",
+    ),
+    label_column: str | None = typer.Option(
+        None,
+        "--label-column",
+        help="samples.parquet column to predict. Defaults to oncotree_tissue.",
+    ),
+    modality: list[str] | None = typer.Option(
+        None,
+        "--modality",
+        help="Modality to export. Repeatable. Defaults to all supported modalities.",
+    ),
+    train_fraction: float | None = typer.Option(None, "--train-fraction"),
+    val_fraction: float | None = typer.Option(None, "--val-fraction"),
+    test_fraction: float | None = typer.Option(None, "--test-fraction"),
+    min_class_count: int | None = typer.Option(None, "--min-class-count"),
+    feature_min_samples: int | None = typer.Option(None, "--feature-min-samples"),
+    max_features_per_modality: int | None = typer.Option(None, "--max-features-per-modality"),
+    seed: int | None = typer.Option(None, "--seed"),
+) -> None:
+    """Build case-aligned model matrices and deterministic train/val/test splits."""
+    recipe_options = {}
+    if config is not None:
+        from .config import load_yaml
+
+        recipe_options = load_yaml(config).recipe_options
+    try:
+        outputs = services.write_model_dataset_recipe(
+            cohort_dir,
+            recipe_options=recipe_options,
+            out_dir=out_dir,
+            label_column=label_column,
+            modalities=modality,
+            train_fraction=train_fraction,
+            val_fraction=val_fraction,
+            test_fraction=test_fraction,
+            min_class_count=min_class_count,
+            feature_min_samples=feature_min_samples,
+            max_features_per_modality=max_features_per_modality,
+            seed=seed,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+    console.print(f"[green]wrote model dataset[/green] -> {outputs.path}")
+    console.print(f"  manifest     : {outputs.manifest}")
+    console.print(f"  samples      : {outputs.samples}")
+    console.print(f"  feature index: {outputs.feature_index}")
+    for modality_name, path in sorted(outputs.matrices.items()):
+        console.print(f"  {modality_name:18}: {path}")
+
+
 @app.command("bench")
 def bench_cmd(
     cohort_dir: Path = typer.Argument(

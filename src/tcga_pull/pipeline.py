@@ -406,6 +406,12 @@ def _recipe_multiomics(cohort_dir: Path, recipe_options: dict[str, Any] | None =
     write_multiomics(cohort_dir, recipe_options)
 
 
+def _recipe_model_dataset(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
+    from .model_dataset import write_model_dataset
+
+    write_model_dataset(cohort_dir, recipe_options)
+
+
 # Name → function. Names must match KNOWN_RECIPES in config.py.
 RECIPE_REGISTRY: dict[str, Callable[[Path, dict[str, Any] | None], None]] = {
     "variants": _recipe_variants,
@@ -417,6 +423,7 @@ RECIPE_REGISTRY: dict[str, Callable[[Path, dict[str, Any] | None], None]] = {
     "copy_number": _recipe_copy_number,
     "protein_expression": _recipe_protein_expression,
     "multiomics": _recipe_multiomics,
+    "model_dataset": _recipe_model_dataset,
 }
 
 
