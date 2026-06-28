@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -227,6 +228,110 @@ def test_model_dataset_honors_modality_and_feature_limits(tmp_path: Path):
     assert set(outputs.matrices) == {"rna_expression"}
     rna = pl.read_parquet(outputs.matrices["rna_expression"])
     assert rna.columns == ["case_id", "submitter_id", "rna_expression__ensg1"]
+
+
+def test_model_dataset_derives_features_from_exported_samples(tmp_path: Path):
+    cohort = tmp_path / "cohort"
+    cohort.mkdir()
+    pl.DataFrame(
+        [
+            {"case_id": "c1", "submitter_id": "P1", "lineage": "keep"},
+            {"case_id": "c2", "submitter_id": "P2", "lineage": "keep"},
+            {"case_id": "c3", "submitter_id": "P3", "lineage": "drop_a"},
+            {"case_id": "c4", "submitter_id": "P4", "lineage": "drop_b"},
+        ]
+    ).write_parquet(cohort / "samples.parquet")
+    pl.DataFrame(
+        [
+            {"submitter_id": "P1", "gene_id": "ENSG_SHARED", "unstranded": 4},
+            {"submitter_id": "P3", "gene_id": "ENSG_SHARED", "unstranded": 7},
+            {"submitter_id": "P3", "gene_id": "ENSG_DROPPED_ONLY", "unstranded": 9},
+            {"submitter_id": "P4", "gene_id": "ENSG_OTHER_DROPPED", "unstranded": 11},
+        ]
+    ).write_parquet(cohort / "rna_expression.parquet")
+
+    outputs = write_model_dataset(
+        cohort,
+        {
+            "model_dataset": {
+                "label_column": "lineage",
+                "modalities": ["rna_expression"],
+                "min_class_count": 2,
+            }
+        },
+    )
+
+    sample_index = pl.read_parquet(outputs.samples)
+    source_omics_sample_count = (
+        pl.read_parquet(cohort / "rna_expression.parquet")
+        .select(pl.col("submitter_id").n_unique())
+        .item()
+    )
+    assert sample_index.height < source_omics_sample_count
+    assert sample_index["submitter_id"].to_list() == ["P1", "P2"]
+
+    rna = pl.read_parquet(outputs.matrices["rna_expression"])
+    assert rna.columns == ["case_id", "submitter_id", "rna_expression__ensg_shared"]
+
+    feature_index = pl.read_parquet(outputs.feature_index)
+    assert feature_index.select(
+        ["modality", "feature_id", "column_name", "n_samples"]
+    ).to_dicts() == [
+        {
+            "modality": "rna_expression",
+            "feature_id": "ENSG_SHARED",
+            "column_name": "rna_expression__ensg_shared",
+            "n_samples": 1,
+        }
+    ]
+
+    manifest = json.loads(outputs.manifest.read_text())
+    assert manifest["n_samples"] == 2
+    assert manifest["label_counts"] == {"keep": 2}
+    assert manifest["split_counts"] == {"test": 1, "train": 1}
+    assert manifest["modalities"]["rna_expression"]["n_features"] == 1
+    assert manifest["modalities"]["rna_expression"]["n_available_samples"] == 1
+
+
+def test_model_dataset_two_sample_split_with_zero_holdout_fraction(tmp_path: Path):
+    cohort = tmp_path / "cohort"
+    cohort.mkdir()
+    pl.DataFrame(
+        [
+            {"case_id": "c1", "submitter_id": "P1", "lineage": "keep"},
+            {"case_id": "c2", "submitter_id": "P2", "lineage": "keep"},
+        ]
+    ).write_parquet(cohort / "samples.parquet")
+    pl.DataFrame(
+        [
+            {"submitter_id": "P1", "gene_id": "ENSG1", "unstranded": 4},
+            {"submitter_id": "P2", "gene_id": "ENSG1", "unstranded": 8},
+        ]
+    ).write_parquet(cohort / "rna_expression.parquet")
+
+    outputs = write_model_dataset(
+        cohort,
+        {
+            "model_dataset": {
+                "label_column": "lineage",
+                "modalities": ["rna_expression"],
+                "train_fraction": 0.5,
+                "val_fraction": 0.0,
+                "test_fraction": 0.5,
+                "min_class_count": 2,
+                "seed": 3,
+            }
+        },
+    )
+
+    sample_index = pl.read_parquet(outputs.samples)
+    assert sample_index.select(["submitter_id", "split"]).to_dicts() == [
+        {"submitter_id": "P1", "split": "test"},
+        {"submitter_id": "P2", "split": "train"},
+    ]
+
+    manifest = json.loads(outputs.manifest.read_text())
+    assert manifest["split_counts"] == {"test": 1, "train": 1}
 
 
 def test_model_dataset_rejects_missing_label_column(tmp_path: Path):

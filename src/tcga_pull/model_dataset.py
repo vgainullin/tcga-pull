@@ -461,6 +461,12 @@ def _pivot_and_write(
     available_submitters: set[str],
     options: ModelDatasetOptions,
 ) -> _MatrixResult | None:
+    sample_submitters = set(sample_ids["submitter_id"].cast(pl.Utf8).to_list())
+    source = source.filter(pl.col("submitter_id").is_in(sorted(sample_submitters)))
+    available_submitters = available_submitters & sample_submitters
+    if source.is_empty():
+        return None
+
     feature_stats = _selected_feature_stats(source, feature_col, options)
     if feature_stats.is_empty():
         return None
