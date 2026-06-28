@@ -179,6 +179,10 @@ def test_pull_multiomics_smoke_end_to_end(tmp_path: Path):
         "    columns: [gene_id, gene_name, unstranded]\n"
         "  copy_number:\n"
         "    outputs: [segments]\n"
+        "  model_dataset:\n"
+        "    label_column: lineage\n"
+        "    modalities: [snv, rna_expression, methylation_beta, gene_copy_number]\n"
+        "    min_class_count: 1\n"
         "recipes:\n"
         "  - variants\n"
         "  - samples\n"
@@ -269,3 +273,34 @@ def test_pull_multiomics_smoke_end_to_end(tmp_path: Path):
     prov = cohort.provenance
     assert prov["processing"]["mode"] == "incremental"
     assert prov["processing"]["delete_raw_after_processing"] is True
+
+    result = runner.invoke(
+        app,
+        ["dataset", str(tmp_path / "ci_multiomics_smoke"), "--config", str(yaml_path)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+
+    model_dataset = load_cohort(tmp_path / "ci_multiomics_smoke").model_dataset
+    assert model_dataset is not None
+    assert (model_dataset.path / "manifest.json").exists()
+    assert (model_dataset.path / "samples.parquet").exists()
+    assert (model_dataset.path / "feature_index.parquet").exists()
+
+    assert len(model_dataset.samples) == len(cohort.samples)
+    assert model_dataset.manifest["n_samples"] == len(cohort.samples)
+    assert model_dataset.manifest["label_column"] == "lineage"
+
+    assert model_dataset.snv is not None
+    assert model_dataset.rna_expression is not None
+    assert model_dataset.gene_copy_number is None
+    assert len(model_dataset.feature_index) > 0
+    assert set(model_dataset.feature_index["modality"].to_list()) >= {
+        "snv",
+        "rna_expression",
+    }
+    assert "gene_copy_number" in model_dataset.manifest["skipped_modalities"]
+    if "methylation_beta" in model_dataset.manifest["modalities"]:
+        assert model_dataset.methylation_beta is not None
+    else:
+        assert "methylation_beta" in model_dataset.manifest["skipped_modalities"]
