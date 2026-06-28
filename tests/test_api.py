@@ -9,6 +9,7 @@ import polars as pl
 import pytest
 
 from tcga_pull import Cohort, ModelDataset, load_cohort
+from tcga_pull.model_dataset import write_model_dataset
 
 
 def _make_cohort_dir(
@@ -129,6 +130,19 @@ def test_cohort_model_dataset_loads_when_present(tmp_path: Path):
     assert cohort.model_dataset.snv is not None
     assert cohort.model_dataset.rna_expression is None
     assert cohort.model_dataset.manifest["n_samples"] == 1
+
+
+def test_failed_model_dataset_export_does_not_register_partial_dataset(tmp_path: Path):
+    cohort_dir = _make_cohort_dir(tmp_path)
+    (cohort_dir / "samples.parquet").unlink()
+
+    with pytest.raises(FileNotFoundError, match=r"samples\.parquet"):
+        write_model_dataset(cohort_dir)
+
+    assert not (cohort_dir / "model_dataset").exists()
+    cohort = load_cohort(cohort_dir)
+    assert cohort.model_dataset is None
+    assert cohort.summary()["n_model_dataset_samples"] == 0
 
 
 def test_cohort_provenance_parses_json(tmp_path: Path):

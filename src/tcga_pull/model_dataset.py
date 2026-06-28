@@ -92,9 +92,8 @@ def write_model_dataset(
     _validate_options(options)
 
     dataset_dir = _dataset_dir(cohort_dir, recipe_options, out_dir)
-    dataset_dir.mkdir(parents=True, exist_ok=True)
-
     samples = _selected_samples(cohort_dir, options)
+    dataset_dir.mkdir(parents=True, exist_ok=True)
     sample_ids = samples.select(["case_id", "submitter_id"])
 
     matrix_results: list[_MatrixResult] = []
@@ -296,9 +295,13 @@ def _assign_group_splits(
     if n == 1:
         counts = {"train": 1, "val": 0, "test": 0}
     elif n == 2:
-        counts = {"train": 1, "val": 0, "test": 1 if test_fraction > 0 else 0}
-        if counts["test"] == 0:
+        counts = {"train": 1, "val": 0, "test": 0}
+        if val_fraction <= 0 and test_fraction <= 0:
             counts["train"] = 2
+        elif test_fraction > 0 and test_fraction >= val_fraction:
+            counts["test"] = 1
+        elif val_fraction > 0:
+            counts["val"] = 1
     else:
         n_val = max(1, round(n * val_fraction)) if val_fraction > 0 else 0
         n_test = max(1, round(n * test_fraction)) if test_fraction > 0 else 0
