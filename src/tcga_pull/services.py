@@ -23,6 +23,7 @@ from .config import (
     load_yaml,
     read_projects_file,
 )
+from .coverage import CoverageMatrix, CoverageOutputs
 from .download import write_manifest_tsv
 from .gdc import GDCClient
 
@@ -236,6 +237,27 @@ def list_projects(
 ) -> list[dict]:
     rows = (client or GDCClient()).list_projects(program=program)
     return sorted(rows, key=lambda x: x.get("project_id") or "")
+
+
+def build_coverage_matrix(
+    *,
+    program: str = "TCGA",
+    projects: list[str] | None = None,
+    client: Any | None = None,
+) -> CoverageMatrix:
+    from .coverage import build_coverage_matrix as _build_coverage_matrix
+
+    return _build_coverage_matrix(
+        program=program,
+        projects=projects,
+        client=client or GDCClient(),
+    )
+
+
+def write_coverage_outputs(matrix: CoverageMatrix, out_dir: Path) -> CoverageOutputs:
+    from .coverage import write_coverage_outputs as _write_coverage_outputs
+
+    return _write_coverage_outputs(matrix, out_dir)
 
 
 def resolve_variants_writer(engine: str):

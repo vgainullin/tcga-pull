@@ -227,6 +227,36 @@ def projects(program: str = typer.Option("TCGA", "--program")) -> None:
 
 
 @app.command()
+def coverage(
+    program: str = typer.Option("TCGA", "--program", help="GDC program to inventory."),
+    project: list[str] | None = typer.Option(
+        None,
+        "--project",
+        help="Restrict to one project_id. Repeatable. Defaults to all projects in --program.",
+    ),
+    out_dir: Path = typer.Option(
+        Path("./coverage"),
+        "--out-dir",
+        "-o",
+        help="Directory for the parquet and Markdown coverage matrix outputs.",
+    ),
+) -> None:
+    """Inventory open-access file groups and classify recipe coverage."""
+    with console.status("[cyan]Querying GDC open-access file metadata...[/cyan]"):
+        matrix = services.build_coverage_matrix(program=program, projects=project)
+        outputs = services.write_coverage_outputs(matrix, out_dir)
+
+    supported = sum(1 for row in matrix.rows if row["support_status"] == "supported")
+    raw_only = sum(1 for row in matrix.rows if row["support_status"] == "raw_only")
+    console.print(
+        f"[green]wrote[/green] {outputs.parquet_path}\n"
+        f"[green]wrote[/green] {outputs.markdown_path}\n"
+        f"projects={outputs.n_projects:,} groups={outputs.n_rows:,} "
+        f"supported={supported:,} raw_only={raw_only:,}"
+    )
+
+
+@app.command()
 def agent(
     query: str | None = typer.Option(None, "--query", "-q", help="One-shot NL query."),
     out: Path = typer.Option(Path("./cohorts"), "--out", "-o"),

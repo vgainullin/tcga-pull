@@ -163,6 +163,23 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 The pull / restructure / clinical / manifest layer is data-type-agnostic; new
 recipes plug in through `pipeline.RECIPE_REGISTRY`.
 
+## Coverage matrix
+
+Audit current open-access GDC coverage before adding or validating recipes:
+
+```sh
+tcga-pull coverage --program TCGA --out-dir ./coverage
+```
+
+This writes `tcga_open_access_coverage_matrix.parquet` and
+`tcga_open_access_coverage_matrix.md`. Each row is a project-level file group
+by `data_category`, `data_type`, `data_format`, `experimental_strategy`, and
+`workflow_type`, classified as:
+
+- `supported` — tcga-pull has a normalizing parquet recipe.
+- `raw_only` — files can be inventoried/downloaded, but no normalizing recipe
+  exists yet.
+
 ## Scope
 
 - Open-access GDC.

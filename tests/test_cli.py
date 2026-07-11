@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from tcga_pull import cli, services
 from tcga_pull.config import CohortSpec
+from tcga_pull.coverage import CoverageMatrix, CoverageOutputs
 
 runner = CliRunner()
 
@@ -125,3 +126,54 @@ def test_dataset_command_passes_options_to_service(tmp_path: Path, monkeypatch):
     assert captured["kwargs"]["modalities"] == ["snv"]
     assert captured["kwargs"]["min_class_count"] == 1
     assert captured["kwargs"]["seed"] == 42
+
+
+def test_coverage_command_writes_matrix_outputs(tmp_path: Path, monkeypatch):
+    captured: dict[str, object] = {}
+    matrix = CoverageMatrix(
+        program="TCGA",
+        project_ids=("TCGA-BRCA",),
+        rows=(
+            {"support_status": "supported"},
+            {"support_status": "raw_only"},
+        ),
+    )
+
+    def fake_build_coverage_matrix(*, program: str, projects: list[str] | None = None):
+        captured["program"] = program
+        captured["projects"] = projects
+        return matrix
+
+    def fake_write_coverage_outputs(matrix_arg: CoverageMatrix, out_dir: Path):
+        captured["matrix"] = matrix_arg
+        captured["out_dir"] = out_dir
+        return CoverageOutputs(
+            parquet_path=tmp_path / "tcga_open_access_coverage_matrix.parquet",
+            markdown_path=tmp_path / "tcga_open_access_coverage_matrix.md",
+            n_rows=2,
+            n_projects=1,
+        )
+
+    monkeypatch.setattr(services, "build_coverage_matrix", fake_build_coverage_matrix)
+    monkeypatch.setattr(services, "write_coverage_outputs", fake_write_coverage_outputs)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "coverage",
+            "--program",
+            "TCGA",
+            "--project",
+            "TCGA-BRCA",
+            "--out-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["program"] == "TCGA"
+    assert captured["projects"] == ["TCGA-BRCA"]
+    assert captured["matrix"] == matrix
+    assert captured["out_dir"] == tmp_path
+    assert "supported=1" in result.output
+    assert "raw_only=1" in result.output
