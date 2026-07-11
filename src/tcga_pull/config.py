@@ -44,6 +44,7 @@ KNOWN_RECIPES: tuple[str, ...] = (
     "copy_number",
     "protein_expression",
     "multiomics",
+    "model_dataset",
 )
 
 

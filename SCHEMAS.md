@@ -21,6 +21,7 @@ cohort/
   copy_number_segments.parquet # optional: one row per CNV segment
   gene_copy_number.parquet   # optional: one row per (case × gene CNV)
   protein_expression.parquet # optional: one row per (case × RPPA target)
+  model_dataset/             # optional: case-aligned training matrices
   cohort.json                # resolved filter + counts + timestamp
   data/<submitter_id>/<data_category>/<file>   # raw downloaded files
 ```
@@ -230,6 +231,56 @@ vs gnomAD population:
   gnomad_af
   log2_enrichment_vs_gnomad
 ```
+
+---
+
+## `model_dataset/` (optional, produced by `tcga-pull dataset` or recipe `model_dataset`)
+
+Directory layout:
+
+```
+model_dataset/
+  manifest.json
+  samples.parquet
+  feature_index.parquet
+  snv.parquet                  # optional
+  rna_expression.parquet       # optional
+  methylation_beta.parquet     # optional
+  gene_copy_number.parquet     # optional
+  mirna_expression.parquet     # optional
+  protein_expression.parquet   # optional
+```
+
+`samples.parquet` contains one row per selected case:
+
+```
+case_id, submitter_id, <label_column>, split, has_<modality>...
+```
+
+The default label is `oncotree_tissue`. Splits are deterministic, stratified by
+label, and controlled by `seed`, `train_fraction`, `val_fraction`, and
+`test_fraction`.
+
+Each modality matrix contains `case_id`, `submitter_id`, then feature columns
+named `<modality>__<feature>`. SNV features are binary rare-coding gene hits
+from the primary aliquot. RNA and miRNA values are `log1p` transformed from
+counts/RPM columns. Methylation, gene CNV, and protein values keep the processed
+parquet values.
+
+`feature_index.parquet` maps generated matrix columns back to source features:
+
+| column | type | notes |
+|---|---|---|
+| `modality` | Utf8 | e.g. `snv`, `rna_expression` |
+| `feature_id` | Utf8 | source gene/probe/miRNA/protein id |
+| `feature_name` | Utf8 | currently same as `feature_id` |
+| `column_name` | Utf8 | matrix column name |
+| `value_column` | Utf8 | source value column or `value` for derived SNV |
+| `transform` | Utf8 | `binary`, `log1p`, or `none` |
+| `n_samples` | Int64 | selected cases with non-null source values |
+
+`manifest.json` records options, label counts, split counts, emitted modality
+paths, feature counts, and skipped modalities.
 
 ---
 

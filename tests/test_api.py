@@ -8,10 +8,13 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from tcga_pull import Cohort, load_cohort
+from tcga_pull import Cohort, ModelDataset, load_cohort
+from tcga_pull.model_dataset import write_model_dataset
 
 
-def _make_cohort_dir(tmp_path: Path, *, with_optional: bool = False) -> Path:
+def _make_cohort_dir(
+    tmp_path: Path, *, with_optional: bool = False, with_model_dataset: bool = False
+) -> Path:
     cohort = tmp_path / "fixture"
     cohort.mkdir()
 
@@ -43,6 +46,28 @@ def _make_cohort_dir(tmp_path: Path, *, with_optional: bool = False) -> Path:
         pl.DataFrame({"protein_id": ["TP53|p53"]}).write_parquet(
             cohort / "protein_expression.parquet"
         )
+    if with_model_dataset:
+        model_dataset = cohort / "model_dataset"
+        model_dataset.mkdir()
+        pl.DataFrame(
+            {
+                "case_id": ["c1"],
+                "submitter_id": ["s1"],
+                "oncotree_tissue": ["Breast"],
+                "split": ["train"],
+            }
+        ).write_parquet(model_dataset / "samples.parquet")
+        pl.DataFrame(
+            {
+                "modality": ["snv"],
+                "feature_id": ["TP53"],
+                "column_name": ["snv__tp53"],
+            }
+        ).write_parquet(model_dataset / "feature_index.parquet")
+        pl.DataFrame({"case_id": ["c1"], "submitter_id": ["s1"], "snv__tp53": [1]}).write_parquet(
+            model_dataset / "snv.parquet"
+        )
+        (model_dataset / "manifest.json").write_text(json.dumps({"n_samples": 1}))
     return cohort
 
 
@@ -80,6 +105,7 @@ def test_cohort_optional_frames_return_none_when_missing(tmp_path: Path):
     assert cohort.variant_frequency is None
     assert cohort.rna_expression is None
     assert cohort.protein_expression is None
+    assert cohort.model_dataset is None
 
 
 def test_cohort_optional_frames_load_when_present(tmp_path: Path):
@@ -93,6 +119,30 @@ def test_cohort_optional_frames_load_when_present(tmp_path: Path):
     assert cohort.copy_number_segments is not None
     assert cohort.gene_copy_number is not None
     assert cohort.protein_expression is not None
+
+
+def test_cohort_model_dataset_loads_when_present(tmp_path: Path):
+    cohort = load_cohort(_make_cohort_dir(tmp_path, with_model_dataset=True))
+
+    assert isinstance(cohort.model_dataset, ModelDataset)
+    assert len(cohort.model_dataset.samples) == 1
+    assert len(cohort.model_dataset.feature_index) == 1
+    assert cohort.model_dataset.snv is not None
+    assert cohort.model_dataset.rna_expression is None
+    assert cohort.model_dataset.manifest["n_samples"] == 1
+
+
+def test_failed_model_dataset_export_does_not_register_partial_dataset(tmp_path: Path):
+    cohort_dir = _make_cohort_dir(tmp_path)
+    (cohort_dir / "samples.parquet").unlink()
+
+    with pytest.raises(FileNotFoundError, match=r"samples\.parquet"):
+        write_model_dataset(cohort_dir)
+
+    assert not (cohort_dir / "model_dataset").exists()
+    cohort = load_cohort(cohort_dir)
+    assert cohort.model_dataset is None
+    assert cohort.summary()["n_model_dataset_samples"] == 0
 
 
 def test_cohort_provenance_parses_json(tmp_path: Path):
@@ -110,7 +160,7 @@ def test_cohort_provenance_empty_when_missing(tmp_path: Path):
 
 
 def test_cohort_summary_counts_rows(tmp_path: Path):
-    cohort = load_cohort(_make_cohort_dir(tmp_path, with_optional=True))
+    cohort = load_cohort(_make_cohort_dir(tmp_path, with_optional=True, with_model_dataset=True))
     s = cohort.summary()
     assert s["n_clinical"] == 2
     assert s["n_variants"] == 1
@@ -123,6 +173,7 @@ def test_cohort_summary_counts_rows(tmp_path: Path):
     assert s["n_copy_number_segments"] == 1
     assert s["n_gene_copy_number"] == 1
     assert s["n_protein_expression"] == 1
+    assert s["n_model_dataset_samples"] == 1
 
 
 def test_repeated_access_is_cached(tmp_path: Path):

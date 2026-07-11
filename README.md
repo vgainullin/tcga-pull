@@ -108,6 +108,23 @@ with:
 tcga-pull multiomics ./cohorts/pancancer_multiomics
 ```
 
+To export case-aligned matrices for model training:
+
+```sh
+tcga-pull dataset ./cohorts/pancancer_multiomics \
+  --label-column oncotree_tissue \
+  --modality snv \
+  --modality rna_expression \
+  --modality methylation_beta \
+  --min-class-count 20 \
+  --max-features-per-modality 5000
+```
+
+This writes `model_dataset/` under the cohort with `samples.parquet`,
+`feature_index.parquet`, one matrix parquet per modality, and a JSON manifest.
+For strict tumor-only model inputs, include `sample_type: [Primary Tumor]` in
+the cohort filter before download.
+
 ## Python API
 
 ```python
@@ -121,6 +138,7 @@ cohort.samples
 cohort.gene_frequency
 cohort.rna_expression
 cohort.methylation_beta
+cohort.model_dataset
 cohort.provenance
 ```
 
@@ -140,6 +158,7 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 | `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | segment-level and gene-level CNV |
 | `protein_expression` | `protein_expression.parquet` | one per (case × RPPA target) |
 | `multiomics` | all non-SNV omics parquets above | batch processor |
+| `model_dataset` | `model_dataset/*.parquet`, `model_dataset/manifest.json` | case-aligned training matrices |
 
 The pull / restructure / clinical / manifest layer is data-type-agnostic; new
 recipes plug in through `pipeline.RECIPE_REGISTRY`.

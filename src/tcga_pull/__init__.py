@@ -8,7 +8,7 @@ Public API:
 
 __version__ = "0.1.2"
 
-from .api import Cohort, load_cohort
+from .api import Cohort, ModelDataset, load_cohort
 from .config import CohortSpec
 from .gdc import GDCClient
 from .pipeline import fetch_preview, run
@@ -17,6 +17,7 @@ __all__ = [
     "Cohort",
     "CohortSpec",
     "GDCClient",
+    "ModelDataset",
     "__version__",
     "fetch_preview",
     "load_cohort",

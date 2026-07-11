@@ -113,9 +113,10 @@ def test_yaml_with_recipes(tmp_path: Path):
         "  - variants\n"
         "  - samples\n"
         "  - frequency\n"
+        "  - model_dataset\n"
     )
     spec = load_yaml(yaml_path)
-    assert spec.recipes == ["variants", "samples", "frequency"]
+    assert spec.recipes == ["variants", "samples", "frequency", "model_dataset"]
 
 
 def test_yaml_with_optional_omics(tmp_path: Path):

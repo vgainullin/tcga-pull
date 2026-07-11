@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tcga-pull dataset` and recipe `model_dataset` — exports case-aligned
+  training matrices under `model_dataset/` with deterministic stratified splits,
+  modality masks, a feature index, and a JSON manifest.
 - `tcga-pull install-gdc-client` — downloads the official NCI binary, verifies
   against pinned per-platform MD5, drops it in `~/.local/bin/`. Replaces the
   micromamba-based install instructions in the README.
