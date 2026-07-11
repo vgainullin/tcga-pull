@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tcga-pull overlap` — previews file/case/byte coverage and pairwise or N-way
+  case intersections across a primary cohort and selected optional omics,
+  with project/sample-type breakdowns and optional JSON or parquet output.
 - `tcga-pull dataset` and recipe `model_dataset` — exports case-aligned
   training matrices under `model_dataset/` with deterministic stratified splits,
   modality masks, a feature index, and a JSON manifest.

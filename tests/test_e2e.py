@@ -27,6 +27,7 @@ from tcga_pull.cli import app
 from tcga_pull.config import load_yaml
 from tcga_pull.coverage import build_coverage_matrix
 from tcga_pull.gdc import GDCClient
+from tcga_pull.overlap import build_overlap_report
 from tcga_pull.pipeline import fetch_preview
 from tcga_pull.pipeline import run as pipeline_run
 
@@ -108,6 +109,32 @@ def test_coverage_command_writes_live_gdc_outputs(tmp_path: Path):
     assert "supported" in set(df["support_status"].to_list())
     assert "raw_only" in set(df["support_status"].to_list())
     assert "TCGA-CHOL" in markdown_path.read_text()
+
+
+@pytest.mark.network
+def test_overlap_report_live_gdc_chol(tmp_path: Path):
+    yaml = tmp_path / "overlap.yaml"
+    yaml.write_text(
+        "name: chol-overlap\n"
+        "filters:\n"
+        "  project: TCGA-CHOL\n"
+        "  data_category: Simple Nucleotide Variation\n"
+        "  data_format: MAF\n"
+        "optional_omics:\n"
+        "  - name: rna\n"
+        "    filters:\n"
+        "      data_category: Transcriptome Profiling\n"
+        "      data_type: Gene Expression Quantification\n"
+        "      workflow: STAR - Counts\n"
+    )
+
+    report = build_overlap_report(load_yaml(yaml), omics=["rna"])
+
+    assert [item.name for item in report.selections] == ["primary", "rna"]
+    assert all(item.n_files > 0 and item.n_cases > 0 for item in report.selections)
+    assert report.pairwise[0].n_cases > 0
+    assert report.all_selected.n_cases == report.pairwise[0].n_cases
+    assert report.all_selected.cases_by_project == {"TCGA-CHOL": report.all_selected.n_cases}
 
 
 # --------------------------------------------------------------- @download

@@ -60,8 +60,16 @@ separately and merged downstream by `case_id` or `submitter_id`:
 ```sh
 tcga-pull omics examples/pancancer_snv.yaml
 tcga-pull preview examples/pancancer_snv.yaml --omics rna_gene_expression_star_counts
+tcga-pull overlap examples/pancancer_snv.yaml \
+  --omics dna_methylation_beta --omics protein_expression_rppa \
+  --json overlap.json --parquet overlap.parquet
 tcga-pull pull examples/pancancer_snv.yaml --omics rna_gene_expression_star_counts
 ```
+
+`overlap` queries metadata only. It reports files, unique cases, bytes, project
+and sample-type breakdowns for each selection, plus pairwise and all-selected
+case intersections. Machine-readable outputs include the resolved GDC filters
+and UTC query timestamp.
 
 For one processed download containing SNVs plus all declared omics file types, use
 [`examples/pancancer_multiomics.yaml`](examples/pancancer_multiomics.yaml):

@@ -260,6 +260,20 @@ def write_coverage_outputs(matrix: CoverageMatrix, out_dir: Path) -> CoverageOut
     return _write_coverage_outputs(matrix, out_dir)
 
 
+def build_overlap_report(spec: CohortSpec, *, omics: list[str], client: Any | None = None):
+    from .overlap import build_overlap_report as _build_overlap_report
+
+    return _build_overlap_report(spec, omics=omics, client=client or GDCClient())
+
+
+def write_overlap_outputs(
+    report, *, json_path: Path | None = None, parquet_path: Path | None = None
+):
+    from .overlap import write_overlap_outputs as _write_overlap_outputs
+
+    return _write_overlap_outputs(report, json_path=json_path, parquet_path=parquet_path)
+
+
 def resolve_variants_writer(engine: str):
     if engine == "polars":
         from .variants_polars import write_variants

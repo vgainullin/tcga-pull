@@ -257,6 +257,69 @@ def coverage(
 
 
 @app.command()
+def overlap(
+    config: Path = typer.Argument(..., exists=True, dir_okay=False, help="Cohort YAML."),
+    omics: list[str] = typer.Option(
+        ...,
+        "--omics",
+        help="Named optional_omics entry to compare. Repeatable.",
+    ),
+    json_path: Path | None = typer.Option(None, "--json", help="Write the full report as JSON."),
+    parquet_path: Path | None = typer.Option(
+        None, "--parquet", help="Write summary rows as Parquet."
+    ),
+) -> None:
+    """Preview case overlap across a primary cohort and optional omics."""
+    spec = _spec_from_args(
+        config,
+        name=None,
+        out=None,
+        project=None,
+        projects_file=None,
+        data_type=None,
+        data_category=None,
+        data_format=None,
+        experimental_strategy=None,
+        workflow=None,
+        sample_type=None,
+        n_processes=4,
+    )
+    try:
+        with console.status("[cyan]Querying GDC metadata for each selection...[/cyan]"):
+            report = services.build_overlap_report(spec, omics=omics)
+            outputs = None
+            if json_path or parquet_path:
+                outputs = services.write_overlap_outputs(
+                    report, json_path=json_path, parquet_path=parquet_path
+                )
+    except ValueError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(2) from None
+
+    table = Table(title=f"Case overlap: [bold]{report.cohort}[/bold]")
+    table.add_column("selection")
+    table.add_column("files", justify="right")
+    table.add_column("cases", justify="right")
+    table.add_column("bytes", justify="right")
+    for item in report.selections:
+        table.add_row(item.name, f"{item.n_files:,}", f"{item.n_cases:,}", f"{item.total_size:,}")
+    console.print(table)
+
+    pairs = Table(title="Case intersections")
+    pairs.add_column("selections")
+    pairs.add_column("cases", justify="right")
+    for item in report.pairwise:
+        pairs.add_row(" ∩ ".join(item.selections), f"{item.n_cases:,}")
+    pairs.add_row("all selected", f"{report.all_selected.n_cases:,}", style="bold")
+    console.print(pairs)
+    console.print(f"queried_at={report.queried_at}")
+    if outputs:
+        for path in (outputs.json_path, outputs.parquet_path):
+            if path:
+                console.print(f"[green]wrote[/green] {path}")
+
+
+@app.command()
 def agent(
     query: str | None = typer.Option(None, "--query", "-q", help="One-shot NL query."),
     out: Path = typer.Option(Path("./cohorts"), "--out", "-o"),
