@@ -12,6 +12,12 @@ from typer.testing import CliRunner
 from tcga_pull import cli, services
 from tcga_pull.config import CohortSpec
 from tcga_pull.coverage import CoverageMatrix, CoverageOutputs
+from tcga_pull.overlap import (
+    IntersectionSummary,
+    OverlapOutputs,
+    OverlapReport,
+    SelectionSummary,
+)
 
 runner = CliRunner()
 
@@ -177,3 +183,39 @@ def test_coverage_command_writes_matrix_outputs(tmp_path: Path, monkeypatch):
     assert captured["out_dir"] == tmp_path
     assert "supported=1" in result.output
     assert "raw_only=1" in result.output
+
+
+def test_overlap_command_passes_omics_and_writes_outputs(tmp_path: Path, monkeypatch):
+    config = tmp_path / "cohort.yaml"
+    config.write_text(
+        "name: c\nfilters: {project: TCGA-CHOL, data_format: MAF}\n"
+        "optional_omics:\n  - name: rna\n    filters: {data_type: RNA}\n"
+    )
+    selection = SelectionSummary("primary", {}, 2, 3, 100, {}, {})
+    intersection = IntersectionSummary(("primary", "rna"), 2, {})
+    report = OverlapReport(
+        "c", "2026-07-11T00:00:00+00:00", (selection,), (intersection,), intersection
+    )
+    captured: dict[str, object] = {}
+
+    def fake_build(spec, *, omics):
+        captured["omics"] = omics
+        return report
+
+    def fake_write(report_arg, *, json_path=None, parquet_path=None):
+        captured["report"] = report_arg
+        captured["json_path"] = json_path
+        return OverlapOutputs(json_path=json_path)
+
+    monkeypatch.setattr(services, "build_overlap_report", fake_build)
+    monkeypatch.setattr(services, "write_overlap_outputs", fake_write)
+
+    result = runner.invoke(
+        cli.app, ["overlap", str(config), "--omics", "rna", "--json", str(tmp_path / "o.json")]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["omics"] == ["rna"]
+    assert captured["report"] == report
+    assert "all selected" in result.output
+    assert "queried_at=2026-07-11" in result.output
