@@ -19,7 +19,7 @@ from .download import (
     should_use_bulk,
     write_manifest_tsv,
 )
-from .gdc import GDCClient
+from .gdc import GDCClient, f_and, f_in
 from .layout import write_clinical, write_manifest, write_provenance
 
 
@@ -105,6 +105,31 @@ def fetch_preview(spec: CohortSpec, client: GDCClient | None = None) -> Preview:
     )
 
 
+def _fetch_clinical(preview: Preview, client: GDCClient) -> list[dict]:
+    """Fetch clinical records for the cases selected by a capped preview."""
+    if preview.spec.limit.per_project is None:
+        return client.fetch_clinical(preview.resolved_filter)
+
+    selected_case_ids = sorted(
+        {
+            case_id
+            for hit in preview.file_hits
+            for case in (hit.get("cases") or [])
+            if (case_id := case.get("case_id"))
+        }
+    )
+    if not selected_case_ids:
+        return []
+
+    clinical_filter = f_and(
+        preview.resolved_filter,
+        f_in("cases.case_id", selected_case_ids),
+    )
+    cases = client.fetch_clinical(clinical_filter)
+    selected = set(selected_case_ids)
+    return [case for case in cases if case.get("case_id") in selected]
+
+
 def render_preview(p: Preview, console: Console | None = None) -> None:
     console = console or Console()
     spec = p.spec
@@ -185,7 +210,7 @@ def run(
         records = restructure(preview.file_hits, download_tmp, data_dir, move=True)
 
     with console.status("[cyan]Fetching clinical metadata…[/cyan]"):
-        cases = client.fetch_clinical(preview.resolved_filter)
+        cases = _fetch_clinical(preview, client)
     clinical_path, raw_path = write_clinical(cases, cohort_dir)
     manifest_path = write_manifest(records, cohort_dir)
     prov_path = write_provenance(
@@ -284,7 +309,7 @@ def _run_incremental(
         records.extend(batch_records)
 
     with console.status("[cyan]Fetching clinical metadata…[/cyan]"):
-        cases = client.fetch_clinical(preview.resolved_filter)
+        cases = _fetch_clinical(preview, client)
     clinical_path, raw_path = write_clinical(cases, cohort_dir)
     manifest_path = write_manifest(records, cohort_dir)
     prov_path = write_provenance(

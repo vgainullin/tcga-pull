@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `samples.parquet` are no longer null placeholders — they're populated from
   the crosswalk. Heterogeneous projects (CPTAC, HCMI) map to `OTHER`.
 
+### Fixed
+- Capped cohorts now restrict clinical metadata to the case IDs selected by
+  `limit.per_project`, keeping clinical, manifest, and recipe outputs aligned.
+
 ## [0.1.2] — 2026-05-12
 
 ### Changed
