@@ -71,6 +71,26 @@ and sample-type breakdowns for each selection, plus pairwise and all-selected
 case intersections. Machine-readable outputs include the resolved GDC filters
 and UTC query timestamp.
 
+To cap every modality to the same cases, create a shared case-set artifact from
+the uncapped N-way intersection, then reuse it for each preview or pull:
+
+```sh
+tcga-pull case-set examples/pancancer_snv.yaml \
+  --omics dna_methylation_beta --omics protein_expression_rppa \
+  --limit-per-project 100 --out shared-cases.json
+tcga-pull pull examples/pancancer_snv.yaml --case-set shared-cases.json
+tcga-pull pull examples/pancancer_snv.yaml \
+  --omics dna_methylation_beta --case-set shared-cases.json
+tcga-pull pull examples/pancancer_snv.yaml \
+  --omics protein_expression_rppa --case-set shared-cases.json
+```
+
+The artifact records selected modalities, resolved filters, candidate and
+selected counts, per-project shortfalls, deterministic ordering, and exact case
+IDs. Each resulting `cohort.json` records the artifact path and SHA-256. Without
+`--case-set`, `limit.per_project` keeps its existing independent-per-cohort
+behavior.
+
 For one processed download containing SNVs plus all declared omics file types, use
 [`examples/pancancer_multiomics.yaml`](examples/pancancer_multiomics.yaml):
 

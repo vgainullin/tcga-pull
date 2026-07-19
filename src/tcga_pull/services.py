@@ -7,7 +7,7 @@ and render state however it wants.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -177,6 +177,46 @@ def select_optional_omics(spec: CohortSpec, name: str) -> CohortSpec:
         raise SpecBuildError(str(e)) from e
 
 
+def apply_shared_case_set(spec: CohortSpec, *, selection: str, path: Path) -> CohortSpec:
+    from .case_set import case_set_sha256, load_shared_case_set
+
+    resolved_path = Path(path).expanduser().resolve()
+    try:
+        case_set = load_shared_case_set(resolved_path)
+        if case_set.cohort != spec.name:
+            raise ValueError(f"case set belongs to cohort {case_set.cohort!r}, not {spec.name!r}")
+        if selection not in case_set.selections:
+            raise ValueError(
+                f"selection {selection!r} is not in case set; "
+                f"available: {', '.join(case_set.selections)}"
+            )
+        if not case_set.cases:
+            raise ValueError("case set contains no selected cases")
+        selected_spec = spec if selection == "primary" else spec.optional_omics_cohort(selection)
+    except (OSError, ValueError) as exc:
+        raise SpecBuildError(str(exc)) from exc
+
+    provenance = {
+        "source": str(resolved_path),
+        "sha256": case_set_sha256(resolved_path),
+        "schema_version": case_set.schema_version,
+        "cohort": case_set.cohort,
+        "selection": selection,
+        "selections": list(case_set.selections),
+        "created_at": case_set.created_at,
+        "candidate_count": case_set.candidate_count,
+        "selected_count": case_set.selected_count,
+        "requested_per_project": case_set.requested_per_project,
+        "ordering": case_set.ordering,
+    }
+    return replace(
+        selected_spec,
+        limit=LimitSpec(),
+        selected_case_ids=case_set.case_ids,
+        case_set_provenance=provenance,
+    )
+
+
 def default_cohort_name(project: list[str], data_type: list[str] | None) -> str:
     if len(project) == 1:
         p = project[0].lower().replace("tcga-", "")
@@ -264,6 +304,18 @@ def build_overlap_report(spec: CohortSpec, *, omics: list[str], client: Any | No
     from .overlap import build_overlap_report as _build_overlap_report
 
     return _build_overlap_report(spec, omics=omics, client=client or GDCClient())
+
+
+def build_shared_case_set(spec: CohortSpec, *, omics: list[str], client: Any | None = None):
+    from .case_set import build_shared_case_set as _build_shared_case_set
+
+    return _build_shared_case_set(spec, omics=omics, client=client or GDCClient())
+
+
+def write_shared_case_set(case_set, path: Path) -> Path:
+    from .case_set import write_shared_case_set as _write_shared_case_set
+
+    return _write_shared_case_set(case_set, path)
 
 
 def write_overlap_outputs(

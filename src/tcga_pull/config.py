@@ -121,6 +121,8 @@ class CohortSpec:
     processing: ProcessingSpec = field(default_factory=ProcessingSpec)
     recipe_options: dict[str, Any] = field(default_factory=dict)
     optional_omics: list[OptionalOmicsSpec] = field(default_factory=list)
+    selected_case_ids: tuple[str, ...] | None = None
+    case_set_provenance: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         bad = [r for r in self.recipes if r not in KNOWN_RECIPES]
@@ -137,17 +139,22 @@ class CohortSpec:
 
     def resolve_filter(self) -> dict:
         """Merge sugar `filters` with `gdc_filter` and force open access."""
+        user_filter: dict | None
         if self.gdc_filter:
-            return open_access(self.gdc_filter)
-        clauses = []
-        for key, value in self.filters.items():
-            if key not in SUGAR_FIELDS:
-                raise ValueError(
-                    f"unknown filter key: {key!r}. "
-                    f"Known: {sorted(SUGAR_FIELDS)}. Use `gdc_filter` for raw fields."
-                )
-            clauses.append(f_in(SUGAR_FIELDS[key], value))
-        return open_access(f_and(*clauses) if clauses else None)
+            user_filter = self.gdc_filter
+        else:
+            clauses = []
+            for key, value in self.filters.items():
+                if key not in SUGAR_FIELDS:
+                    raise ValueError(
+                        f"unknown filter key: {key!r}. "
+                        f"Known: {sorted(SUGAR_FIELDS)}. Use `gdc_filter` for raw fields."
+                    )
+                clauses.append(f_in(SUGAR_FIELDS[key], value))
+            user_filter = f_and(*clauses) if clauses else None
+        if self.selected_case_ids is not None:
+            user_filter = f_and(user_filter, f_in("cases.case_id", self.selected_case_ids))
+        return open_access(user_filter)
 
     def optional_omics_cohort(self, name: str) -> CohortSpec:
         """Return a concrete CohortSpec for one optional omics add-on."""
