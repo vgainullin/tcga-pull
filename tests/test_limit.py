@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
-from tcga_pull.config import LimitSpec
+import gzip
+import io
+from pathlib import Path
+from typing import cast
+
+import pandas as pd
+import polars as pl
+import pytest
+from rich.console import Console
+
+from tcga_pull.config import CohortSpec, LimitSpec, ProcessingSpec
+from tcga_pull.gdc import GDCClient
 from tcga_pull.pipeline import apply_limit
+from tcga_pull.pipeline import run as pipeline_run
 
 
 def _hit(file_id: str, submitter: str, project: str, *, case_id: str | None = None) -> dict:
@@ -87,3 +99,124 @@ def test_apply_limit_passes_multi_case_files_through():
     # 2 single-case + 1 multi-case = 3 files
     assert multi_case_hit in kept
     assert sum(1 for h in kept if len(h["cases"]) == 1) == 2
+
+
+def _write_maf(path: Path, *, case_id: str, submitter_id: str) -> None:
+    row = {
+        "Hugo_Symbol": "TP53",
+        "Chromosome": "chr17",
+        "Start_Position": 7673803,
+        "End_Position": 7673803,
+        "Variant_Type": "SNP",
+        "Reference_Allele": "C",
+        "Tumor_Seq_Allele2": "T",
+        "Variant_Classification": "Missense_Mutation",
+        "Consequence": "missense_variant",
+        "IMPACT": "MODERATE",
+        "t_depth": 100,
+        "t_alt_count": 25,
+        "Tumor_Sample_Barcode": f"{submitter_id}-01A-11D-0000-09",
+        "Matched_Norm_Sample_Barcode": f"{submitter_id}-10A-01D-0000-09",
+        "case_id": case_id,
+        "Transcript_ID": "ENST00000269305",
+        "EXON": "7/11",
+        "HGVSc": "c.742C>T",
+        "HGVSp_Short": "p.R248W",
+        "callers": "mutect2",
+        "gnomAD_AF": None,
+        "COSMIC": None,
+        "SIFT": None,
+        "PolyPhen": None,
+        "CONTEXT": "ACGTACGT",
+        "hotspot": "Y",
+    }
+    body = "#version gdc-1.0.0\n" + pd.DataFrame([row]).to_csv(sep="\t", index=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wb") as fh:
+        fh.write(body.encode())
+
+
+@pytest.mark.parametrize("mode", ["standard", "incremental"])
+def test_capped_pipeline_restricts_clinical_and_samples_to_manifest_cases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+):
+    hits = []
+    clinical_cases = []
+    for index in range(1, 4):
+        case_id = f"case-{index}"
+        submitter_id = f"TCGA-XX-{index:04d}"
+        hit = _hit(f"file-{index}", submitter_id, "TCGA-LUAD", case_id=case_id)
+        hit.update(
+            {
+                "file_name": f"file-{index}.maf.gz",
+                "data_category": "Simple Nucleotide Variation",
+                "data_type": "Masked Somatic Mutation",
+                "data_format": "MAF",
+                "experimental_strategy": "WXS",
+                "analysis": {
+                    "workflow_type": "Aliquot Ensemble Somatic Variant Merging and Masking"
+                },
+            }
+        )
+        hits.append(hit)
+        clinical_cases.append(
+            {
+                "case_id": case_id,
+                "submitter_id": submitter_id,
+                "project": {"project_id": "TCGA-LUAD"},
+                "primary_site": "Bronchus and lung",
+                "disease_type": "Adenomas and Adenocarcinomas",
+            }
+        )
+
+    class FakeClient:
+        clinical_filter: dict | None = None
+
+        def fetch_files(self, flt: dict) -> list[dict]:
+            return hits
+
+        def fetch_clinical(self, flt: dict) -> list[dict]:
+            self.clinical_filter = flt
+            return clinical_cases
+
+    def fake_bulk(file_hits: list[dict], download_dir: Path, **kwargs) -> None:
+        for hit in file_hits:
+            case = hit["cases"][0]
+            _write_maf(
+                download_dir / hit["file_id"] / hit["file_name"],
+                case_id=case["case_id"],
+                submitter_id=case["submitter_id"],
+            )
+
+    monkeypatch.setattr("tcga_pull.pipeline.bulk_download_via_api", fake_bulk)
+    client = FakeClient()
+    spec = CohortSpec(
+        name=f"capped-{mode}",
+        out_dir=tmp_path,
+        filters={"project": "TCGA-LUAD"},
+        limit=LimitSpec(per_project=1),
+        processing=ProcessingSpec(mode=mode, batch_size=1),
+        recipes=["variants", "samples"],
+    )
+
+    cohort_dir = pipeline_run(
+        spec,
+        client=cast(GDCClient, client),
+        console=Console(file=io.StringIO()),
+    )
+
+    selected = {"case-1"}
+    assert set(pl.read_parquet(cohort_dir / "manifest.parquet")["case_id"]) == selected
+    assert set(pl.read_parquet(cohort_dir / "clinical.parquet")["case_id"]) == selected
+    assert set(pl.read_parquet(cohort_dir / "variants.parquet")["case_id"]) == selected
+    assert set(pl.read_parquet(cohort_dir / "samples.parquet")["case_id"]) == selected
+
+    assert client.clinical_filter is not None
+    case_clause = next(
+        clause
+        for clause in client.clinical_filter["content"]
+        if clause["content"].get("field") == "cases.case_id"
+    )
+    assert case_clause["content"]["value"] == ["case-1"]
