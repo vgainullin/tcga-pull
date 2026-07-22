@@ -10,6 +10,7 @@ from typing import Any
 from typer.testing import CliRunner
 
 from tcga_pull import cli, services
+from tcga_pull.case_set import SharedCase, SharedCaseSet, write_shared_case_set
 from tcga_pull.config import CohortSpec
 from tcga_pull.coverage import CoverageMatrix, CoverageOutputs
 from tcga_pull.overlap import (
@@ -219,3 +220,80 @@ def test_overlap_command_passes_omics_and_writes_outputs(tmp_path: Path, monkeyp
     assert captured["report"] == report
     assert "all selected" in result.output
     assert "queried_at=2026-07-11" in result.output
+
+
+def _shared_case_set() -> SharedCaseSet:
+    return SharedCaseSet(
+        schema_version=1,
+        cohort="c",
+        created_at="2026-07-19T00:00:00+00:00",
+        selections=("primary", "rna"),
+        resolved_filters={"primary": {}, "rna": {}},
+        requested_per_project=2,
+        candidate_count=1,
+        selected_count=1,
+        candidate_counts_by_project={"TCGA-A": 1},
+        selected_counts_by_project={"TCGA-A": 1},
+        shortfalls_by_project={"TCGA-A": {"requested": 2, "available": 1}},
+        ordering="project_id, submitter_id, case_id ascending",
+        cases=(SharedCase("case-1", "TCGA-AA-0001", "TCGA-A"),),
+    )
+
+
+def test_case_set_command_builds_artifact_and_reports_shortfall(tmp_path: Path, monkeypatch):
+    config = tmp_path / "cohort.yaml"
+    config.write_text(
+        "name: c\nfilters: {project: TCGA-A, data_type: SNV}\nlimit: {per_project: 2}\n"
+        "optional_omics:\n  - name: rna\n    filters: {data_type: RNA}\n"
+    )
+    output = tmp_path / "shared-cases.json"
+    case_set = _shared_case_set()
+    captured: dict[str, object] = {}
+
+    def fake_build(spec, *, omics):
+        captured["spec"] = spec
+        captured["omics"] = omics
+        return case_set
+
+    def fake_write(case_set_arg, path):
+        captured["case_set"] = case_set_arg
+        captured["path"] = path
+        return path.resolve()
+
+    monkeypatch.setattr(services, "build_shared_case_set", fake_build)
+    monkeypatch.setattr(services, "write_shared_case_set", fake_write)
+
+    result = runner.invoke(
+        cli.app,
+        ["case-set", str(config), "--omics", "rna", "--out", str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["omics"] == ["rna"]
+    assert captured["case_set"] == case_set
+    assert captured["path"] == output
+    assert "requested 2, only 1" in result.output
+    assert "candidates=1 selected=1" in result.output
+
+
+def test_pull_applies_shared_case_set_to_named_omics(tmp_path: Path, monkeypatch):
+    config = tmp_path / "cohort.yaml"
+    config.write_text(
+        "name: c\nfilters: {project: TCGA-A, data_type: SNV}\nlimit: {per_project: 2}\n"
+        "optional_omics:\n  - name: rna\n    filters: {data_type: RNA}\n"
+    )
+    artifact = write_shared_case_set(_shared_case_set(), tmp_path / "shared-cases.json")
+    captured = _capture_spec(monkeypatch)
+
+    result = runner.invoke(
+        cli.app,
+        ["pull", str(config), "--omics", "rna", "--case-set", str(artifact)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured) == 1
+    assert captured[0].name == "c__rna"
+    assert captured[0].selected_case_ids == ("case-1",)
+    assert captured[0].limit.per_project is None
+    assert captured[0].case_set_provenance is not None
+    assert captured[0].case_set_provenance["selection"] == "rna"

@@ -89,11 +89,25 @@ def fetch_preview(spec: CohortSpec, client: GDCClient | None = None) -> Preview:
     client = client or GDCClient()
     flt = spec.resolve_filter()
     file_hits = client.fetch_files(flt)
-    file_hits = apply_limit(file_hits, spec.limit)
+    if spec.selected_case_ids is None:
+        file_hits = apply_limit(file_hits, spec.limit)
     n_files = len(file_hits)
     case_ids = {
         c.get("case_id") for h in file_hits for c in (h.get("cases") or []) if c.get("case_id")
     }
+    if spec.selected_case_ids is not None:
+        expected = set(spec.selected_case_ids)
+        if case_ids != expected:
+            missing = sorted(expected - case_ids)
+            unexpected = sorted(case_ids - expected)
+            details = []
+            if missing:
+                details.append(f"missing={missing}")
+            if unexpected:
+                details.append(f"unexpected={unexpected}")
+            raise ValueError(
+                "case-set preview does not match selected case IDs: " + ", ".join(details)
+            )
     total_size = sum(int(h.get("file_size") or 0) for h in file_hits)
     return Preview(
         spec=spec,
@@ -107,6 +121,10 @@ def fetch_preview(spec: CohortSpec, client: GDCClient | None = None) -> Preview:
 
 def _fetch_clinical(preview: Preview, client: GDCClient) -> list[dict]:
     """Fetch clinical records for the cases selected by a capped preview."""
+    if preview.spec.selected_case_ids is not None:
+        selected = set(preview.spec.selected_case_ids)
+        cases = client.fetch_clinical(preview.resolved_filter)
+        return [case for case in cases if case.get("case_id") in selected]
     if preview.spec.limit.per_project is None:
         return client.fetch_clinical(preview.resolved_filter)
 
@@ -213,16 +231,16 @@ def run(
         cases = _fetch_clinical(preview, client)
     clinical_path, raw_path = write_clinical(cases, cohort_dir)
     manifest_path = write_manifest(records, cohort_dir)
-    prov_path = write_provenance(
-        cohort_dir,
-        {
-            "name": spec.name,
-            "filter": preview.resolved_filter,
-            "n_files": preview.n_files,
-            "n_cases": preview.n_cases,
-            "total_size": preview.total_size,
-        },
-    )
+    provenance = {
+        "name": spec.name,
+        "filter": preview.resolved_filter,
+        "n_files": preview.n_files,
+        "n_cases": preview.n_cases,
+        "total_size": preview.total_size,
+    }
+    if spec.case_set_provenance is not None:
+        provenance["case_set"] = spec.case_set_provenance
+    prov_path = write_provenance(cohort_dir, provenance)
 
     # cleanup gdc-client's working dir (per-file logs etc.)
     import shutil
@@ -312,21 +330,21 @@ def _run_incremental(
         cases = _fetch_clinical(preview, client)
     clinical_path, raw_path = write_clinical(cases, cohort_dir)
     manifest_path = write_manifest(records, cohort_dir)
-    prov_path = write_provenance(
-        cohort_dir,
-        {
-            "name": spec.name,
-            "filter": preview.resolved_filter,
-            "n_files": preview.n_files,
-            "n_cases": preview.n_cases,
-            "total_size": preview.total_size,
-            "processing": {
-                "mode": spec.processing.mode,
-                "batch_size": spec.processing.batch_size,
-                "delete_raw_after_processing": spec.processing.delete_raw_after_processing,
-            },
+    provenance = {
+        "name": spec.name,
+        "filter": preview.resolved_filter,
+        "n_files": preview.n_files,
+        "n_cases": preview.n_cases,
+        "total_size": preview.total_size,
+        "processing": {
+            "mode": spec.processing.mode,
+            "batch_size": spec.processing.batch_size,
+            "delete_raw_after_processing": spec.processing.delete_raw_after_processing,
         },
-    )
+    }
+    if spec.case_set_provenance is not None:
+        provenance["case_set"] = spec.case_set_provenance
+    prov_path = write_provenance(cohort_dir, provenance)
 
     import shutil
 

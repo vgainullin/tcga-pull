@@ -284,6 +284,36 @@ paths, feature counts, and skipped modalities.
 
 ---
 
+## Shared case-set JSON
+
+`tcga-pull case-set ... --out shared-cases.json` writes a reusable selection
+artifact. `cases` is the exact deterministic subset applied by
+`preview` / `pull --case-set`.
+
+```json
+{
+  "schema_version": 1,
+  "cohort": "<source cohort name>",
+  "created_at": "<ISO-8601 timestamp>",
+  "selections": ["primary", "<optional_omics name>", "..."],
+  "resolved_filters": {"<selection>": {<GDC filter JSON>}},
+  "requested_per_project": <int>,
+  "candidate_count": <int>,
+  "selected_count": <int>,
+  "candidate_counts_by_project": {"TCGA-LUAD": <int>},
+  "selected_counts_by_project": {"TCGA-LUAD": <int>},
+  "shortfalls_by_project": {
+    "TCGA-LUAD": {"requested": <int>, "available": <int>}
+  },
+  "ordering": "project_id, submitter_id, case_id ascending",
+  "cases": [
+    {"case_id": "<GDC UUID>", "submitter_id": "<barcode>", "project_id": "TCGA-LUAD"}
+  ]
+}
+```
+
+---
+
 ## `cohort.json`
 
 ```json
@@ -293,12 +323,24 @@ paths, feature counts, and skipped modalities.
   "n_files": <int>,
   "n_cases": <int>,
   "total_size": <bytes>,
+  "case_set": {                         // present only with --case-set
+    "source": "<resolved artifact path>",
+    "sha256": "<artifact digest>",
+    "selection": "primary|<optional_omics name>",
+    "selections": ["primary", "<optional_omics name>", "..."],
+    "candidate_count": <int>,
+    "selected_count": <int>,
+    "requested_per_project": <int>,
+    "ordering": "project_id, submitter_id, case_id ascending"
+  },
   "created_at": "<ISO-8601 timestamp>"
 }
 ```
 
 The `filter` value is the exact JSON sent to the GDC `/files` endpoint, so this
 file is enough to re-pull the same cohort (idempotent up to GDC data releases).
+For shared selections, `case_set` identifies the reusable JSON artifact and
+records its digest so downstream cohorts can prove they used the same case set.
 
 ---
 

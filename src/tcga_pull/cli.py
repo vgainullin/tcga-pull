@@ -35,6 +35,7 @@ def _spec_from_args(
     n_processes: int,
     limit_per_project: int | None = None,
     omics: str | None = None,
+    case_set: Path | None = None,
     incremental: bool | None = None,
     processing_batch_size: int | None = None,
     delete_raw_after_processing: bool | None = None,
@@ -60,7 +61,17 @@ def _spec_from_args(
                 delete_raw_after_processing=delete_raw_after_processing,
             )
         )
-        if omics is not None:
+        if case_set is not None:
+            if limit_per_project is not None:
+                raise services.SpecBuildError(
+                    "--case-set cannot be combined with --limit-per-project"
+                )
+            spec = services.apply_shared_case_set(
+                spec,
+                selection=omics or "primary",
+                path=case_set,
+            )
+        elif omics is not None:
             spec = services.select_optional_omics(spec, omics)
         return spec
     except services.SpecBuildError as e:
@@ -103,6 +114,13 @@ def pull(
         "--omics",
         help="Pull a named optional_omics entry from the YAML instead of the primary cohort.",
     ),
+    case_set: Path | None = typer.Option(
+        None,
+        "--case-set",
+        exists=True,
+        dir_okay=False,
+        help="Apply a shared case-set JSON artifact produced by `tcga-pull case-set`.",
+    ),
     incremental: bool | None = typer.Option(
         None,
         "--incremental/--no-incremental",
@@ -137,6 +155,7 @@ def pull(
         n_processes=n_processes,
         limit_per_project=limit_per_project,
         omics=omics,
+        case_set=case_set,
         incremental=incremental,
         processing_batch_size=processing_batch_size,
         delete_raw_after_processing=delete_raw_after_processing,
@@ -160,6 +179,13 @@ def preview(
         "--omics",
         help="Preview a named optional_omics entry from the YAML instead of the primary cohort.",
     ),
+    case_set: Path | None = typer.Option(
+        None,
+        "--case-set",
+        exists=True,
+        dir_okay=False,
+        help="Apply a shared case-set JSON artifact produced by `tcga-pull case-set`.",
+    ),
 ) -> None:
     """Show what a filter would pull, without downloading."""
     spec = _spec_from_args(
@@ -176,6 +202,7 @@ def preview(
         sample_type=sample_type,
         n_processes=4,
         omics=omics,
+        case_set=case_set,
     )
     p = services.preview_cohort(spec)
     pipeline.render_preview(p, console=console)
@@ -317,6 +344,72 @@ def overlap(
         for path in (outputs.json_path, outputs.parquet_path):
             if path:
                 console.print(f"[green]wrote[/green] {path}")
+
+
+@app.command("case-set")
+def case_set_cmd(
+    config: Path = typer.Argument(..., exists=True, dir_okay=False, help="Cohort YAML."),
+    omics: list[str] = typer.Option(
+        ...,
+        "--omics",
+        help="Named optional_omics entry required in the shared case set. Repeatable.",
+    ),
+    out: Path = typer.Option(..., "--out", "-o", dir_okay=False, help="Output JSON artifact."),
+    limit_per_project: int | None = typer.Option(
+        None,
+        "--limit-per-project",
+        help="Override the YAML limit.per_project used for shared selection.",
+    ),
+) -> None:
+    """Select one deterministic case set from a primary/omics N-way intersection."""
+    spec = _spec_from_args(
+        config,
+        name=None,
+        out=None,
+        project=None,
+        projects_file=None,
+        data_type=None,
+        data_category=None,
+        data_format=None,
+        experimental_strategy=None,
+        workflow=None,
+        sample_type=None,
+        n_processes=4,
+        limit_per_project=limit_per_project,
+    )
+    try:
+        with console.status("[cyan]Selecting shared cases from GDC metadata...[/cyan]"):
+            case_set = services.build_shared_case_set(spec, omics=omics)
+            output_path = services.write_shared_case_set(case_set, out)
+    except ValueError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(2) from None
+
+    table = Table(title=f"Shared case set: [bold]{case_set.cohort}[/bold]")
+    table.add_column("project")
+    table.add_column("requested", justify="right")
+    table.add_column("candidates", justify="right")
+    table.add_column("selected", justify="right")
+    for project_id, candidates in case_set.candidate_counts_by_project.items():
+        table.add_row(
+            project_id,
+            f"{case_set.requested_per_project:,}",
+            f"{candidates:,}",
+            f"{case_set.selected_counts_by_project.get(project_id, 0):,}",
+        )
+    console.print(table)
+    if case_set.candidate_count == 0:
+        console.print("[yellow]No cases are available in the selected N-way intersection.[/yellow]")
+    for project_id, shortfall in case_set.shortfalls_by_project.items():
+        console.print(
+            f"[yellow]{project_id}: requested {shortfall['requested']:,}, "
+            f"only {shortfall['available']:,} intersection cases are available.[/yellow]"
+        )
+    console.print(
+        f"selections={','.join(case_set.selections)} "
+        f"candidates={case_set.candidate_count:,} selected={case_set.selected_count:,}\n"
+        f"[green]wrote[/green] {output_path}"
+    )
 
 
 @app.command()
