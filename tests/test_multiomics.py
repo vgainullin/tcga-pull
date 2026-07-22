@@ -175,6 +175,61 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
     assert protein.row(0, named=True)["expression_value"] == -0.2
 
 
+def test_write_multiomics_handles_live_gdc_methylation_and_rppa_formats(tmp_path: Path):
+    cohort = tmp_path / "cohort"
+    data = cohort / "data" / "TCGA-XX-0001"
+    methylation_path = _write(
+        data / "dna_methylation" / "sample.methylation_array.sesame.level3betas.txt",
+        "cg00000292\t0.307572904704891\ncg00002426\t0.37518710004111\n",
+    )
+    protein_path = _write(
+        data / "proteome_profiling" / "sample_RPPA_data.tsv",
+        "AGID\tlab_id\tcatalog_number\tset_id\tpeptide_target\tprotein_expression\n"
+        "AGID00100\t882\tsc-628\tOld\t1433BETA\t-0.065588\n",
+    )
+    pd.DataFrame(
+        [
+            {
+                "file_id": "meth-file",
+                "file_name": Path(methylation_path).name,
+                "case_id": "case-1",
+                "submitter_id": "TCGA-XX-0001",
+                "data_category": "DNA Methylation",
+                "data_type": "Methylation Beta Value",
+                "experimental_strategy": "Methylation Array",
+                "workflow_type": "SeSAMe Methylation Beta Estimation",
+                "local_path": methylation_path,
+                "status": "ok",
+            },
+            {
+                "file_id": "protein-file",
+                "file_name": Path(protein_path).name,
+                "case_id": "case-1",
+                "submitter_id": "TCGA-XX-0001",
+                "data_category": "Proteome Profiling",
+                "data_type": "Protein Expression Quantification",
+                "experimental_strategy": "Reverse Phase Protein Array",
+                "workflow_type": None,
+                "local_path": protein_path,
+                "status": "ok",
+            },
+        ]
+    ).to_parquet(cohort / "manifest.parquet", index=False)
+
+    write_multiomics(cohort)
+
+    methylation = pl.read_parquet(cohort / "methylation_beta.parquet")
+    assert methylation.select("probe_id", "beta_value").rows() == [
+        ("cg00000292", 0.307572904704891),
+        ("cg00002426", 0.37518710004111),
+    ]
+
+    protein = pl.read_parquet(cohort / "protein_expression.parquet")
+    assert protein.row(0, named=True)["protein_id"] == "AGID00100"
+    assert protein.row(0, named=True)["antibody"] == "1433BETA"
+    assert protein.row(0, named=True)["expression_value"] == -0.065588
+
+
 def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path):
     cohort = tmp_path / "cohort"
     data = cohort / "data" / "TCGA-XX-0001"

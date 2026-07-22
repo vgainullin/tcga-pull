@@ -433,6 +433,35 @@ def _read_table(path: Path) -> pd.DataFrame:
     return cast(pd.DataFrame, df)
 
 
+def _read_methylation_table(path: Path) -> pd.DataFrame:
+    """Read both legacy headered tables and live headerless SeSAMe beta files."""
+    df = _read_table(path)
+    if len(df.columns) != 2 or not str(df.columns[0]).lower().startswith("cg"):
+        return df
+
+    try:
+        headerless = pd.read_csv(
+            path,
+            sep="\t",
+            comment="#",
+            dtype=str,
+            header=None,
+            names=["probe_id", "beta_value"],
+            low_memory=False,
+        )
+    except pd.errors.ParserError:
+        headerless = pd.read_csv(
+            path,
+            sep="\t",
+            comment="#",
+            dtype=str,
+            header=None,
+            names=["probe_id", "beta_value"],
+            engine="python",
+        )
+    return cast(pd.DataFrame, headerless.dropna(axis=1, how="all"))
+
+
 def _normalize_col(value: object) -> str:
     out = str(value).strip().lower()
     for old, new in ((" ", "_"), ("-", "_"), (".", "_"), ("/", "_"), ("(", ""), (")", "")):
@@ -480,7 +509,7 @@ def _methylation_frame(
     schema: pa.Schema = METHYLATION_SCHEMA,
     options: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
-    df = _read_table(Path(row["local_path"]))
+    df = _read_methylation_table(Path(row["local_path"]))
     probe_col = _first_col(df, ("probe_id", "composite_element_ref", "id_ref", "name"))
     allowed = _allowed_set(options or {}, "probes", "probes_file")
     if allowed is not None and probe_col is not None:
@@ -526,7 +555,7 @@ def _gene_cnv_frame(row: dict[str, Any]) -> pd.DataFrame:
 def _protein_frame(row: dict[str, Any]) -> pd.DataFrame:
     df = _read_table(Path(row["local_path"]))
     out = _with_common(df, row)
-    out["protein_id"] = _text(df, "protein_id", "id_ref", "protein")
+    out["protein_id"] = _text(df, "protein_id", "id_ref", "protein", "agid")
     out["gene_symbol"] = _text(df, "gene_symbol", "gene_name", "gene", "symbol")
     out["antibody"] = _text(df, "antibody", "antibody_name", "peptide_target")
     out["expression_value"] = _float(

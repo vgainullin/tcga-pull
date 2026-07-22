@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Normalize live GDC headerless SeSAMe methylation beta files and preserve
+  RPPA `AGID` values as protein identifiers.
+
 ### Added
 - `tcga-pull case-set` and `preview` / `pull --case-set` — deterministically
   select one per-project-capped case set from a primary/optional-omics N-way
