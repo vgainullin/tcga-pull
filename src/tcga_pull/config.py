@@ -23,6 +23,7 @@ SUGAR_FIELDS: dict[str, str] = {
     "data_format": "data_format",
     "experimental_strategy": "experimental_strategy",
     "workflow": "analysis.workflow_type",
+    "platform": "platform",
     "sample_type": "cases.samples.sample_type",
     "tissue_type": "cases.samples.tissue_type",
     "primary_site": "cases.primary_site",
@@ -46,6 +47,17 @@ KNOWN_RECIPES: tuple[str, ...] = (
     "multiomics",
     "model_dataset",
 )
+
+
+def allowed_values(options: dict[str, Any], key: str, file_key: str) -> set[str] | None:
+    values = {str(item) for item in options.get(key) or []}
+    path = options.get(file_key)
+    if path:
+        for raw in Path(path).expanduser().read_text().splitlines():
+            value = raw.strip()
+            if value and not value.startswith("#"):
+                values.add(value)
+    return values or None
 
 
 @dataclass

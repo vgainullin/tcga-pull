@@ -9,10 +9,24 @@ import pytest
 from tcga_pull.config import (
     CohortSpec,
     OptionalOmicsSpec,
+    allowed_values,
     from_flags,
     load_yaml,
     read_projects_file,
 )
+
+
+def test_allowed_values_combines_inline_and_file_entries(tmp_path: Path):
+    values_path = tmp_path / "genes.txt"
+    values_path.write_text("# panel\nTP53\n\nENSG00000141510\n")
+
+    values = allowed_values(
+        {"genes": ["PIK3CA"], "genes_file": str(values_path)},
+        "genes",
+        "genes_file",
+    )
+
+    assert values == {"TP53", "PIK3CA", "ENSG00000141510"}
 
 
 def _find_leaf(flt: dict, field: str) -> dict | None:
@@ -85,6 +99,19 @@ def test_yaml_multi_project(tmp_path: Path):
     project_clause = _find_leaf(flt, "cases.project.project_id")
     assert project_clause is not None
     assert project_clause["content"]["value"] == ["TCGA-BRCA", "TCGA-LUAD"]
+
+
+def test_platform_filter_uses_file_field():
+    spec = CohortSpec(
+        name="methylation",
+        out_dir=Path("/tmp"),
+        filters={"platform": "Illumina Human Methylation 450"},
+    )
+
+    clause = _find_leaf(spec.resolve_filter(), "platform")
+
+    assert clause is not None
+    assert clause["content"]["value"] == ["Illumina Human Methylation 450"]
 
 
 def test_yaml_unknown_filter_raises(tmp_path: Path):

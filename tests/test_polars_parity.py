@@ -100,6 +100,7 @@ def _build_fixture_cohort(tmp_path: Path) -> Path:
             ),
             _maf_row(
                 pos=300,
+                hugo="GENE2",
                 case="c1",
                 tumor="TCGA-AA-AAAA-01A-11D-0000-09",
                 normal="TCGA-AA-AAAA-10A-01D-0000-09",
@@ -233,6 +234,26 @@ def test_variants_parity(tmp_path: Path):
         pl_path,
         sort_cols=["submitter_id", "tumor_barcode", "chrom", "pos"],
     )
+
+
+def test_variant_gene_allowlist_matches_between_engines(tmp_path: Path):
+    cohort = _build_fixture_cohort(tmp_path)
+    mafs = sorted(cohort.glob("data/*/simple_nucleotide_variation/*.maf.gz"))
+
+    pandas = variants_pandas.aggregate_mafs(mafs, genes={"GENE1"})
+    polars = variants_polars.aggregate_mafs(mafs, genes={"GENE1"})
+
+    assert len(pandas) == 4
+    assert set(pandas["hugo_symbol"]) == {"GENE1"}
+    assert len(polars) == 4
+    assert set(polars["hugo_symbol"].to_list()) == {"GENE1"}
+    assert variants_pandas.aggregate_mafs(mafs, genes={"NOT_PRESENT"}).empty
+    assert variants_polars.aggregate_mafs(mafs, genes={"NOT_PRESENT"}).is_empty()
+
+    out = variants_polars.write_variants(cohort, {"variants": {"genes": ["GENE2"]}})
+    selected = pl.read_parquet(out)
+    assert selected.height == 1
+    assert selected["hugo_symbol"].to_list() == ["GENE2"]
 
 
 def test_samples_parity(tmp_path: Path):

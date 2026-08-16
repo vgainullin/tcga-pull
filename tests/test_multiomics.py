@@ -244,7 +244,8 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     rna_path = _write(
         data / "transcriptome_profiling" / "rna.tsv",
         "gene_id\tgene_name\tgene_type\tunstranded\tstranded_first\n"
-        "ENSG00000141510.18\tTP53\tprotein_coding\t42\t40\n",
+        "ENSG00000141510.18\tTP53\tprotein_coding\t42\t40\n"
+        "ENSG00000012048.24\tBRCA1\tprotein_coding\t10\t8\n",
     )
     methylation_path = _write(
         data / "dna_methylation" / "meth.tsv",
@@ -317,7 +318,10 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     outputs = write_multiomics(
         cohort,
         recipe_options={
-            "rna_expression": {"columns": ["gene_id", "gene_name", "unstranded"]},
+            "rna_expression": {
+                "columns": ["gene_id", "gene_name", "unstranded"],
+                "genes": ["TP53"],
+            },
             "methylation": {"probes": ["cg00000029"]},
             "copy_number": {"outputs": ["segments"]},
         },
@@ -327,6 +331,8 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     assert not (cohort / "gene_copy_number.parquet").exists()
 
     rna = pl.read_parquet(cohort / "rna_expression.parquet")
+    assert rna.height == 1
+    assert rna["gene_name"].to_list() == ["TP53"]
     assert rna.columns == [
         "case_id",
         "submitter_id",

@@ -115,13 +115,20 @@ Recipe-specific reduction options can shrink processed outputs further:
 
 ```yaml
 recipe_options:
+  variants:
+    genes_file: ./panels/cancer_genes.txt
   rna_expression:
     columns: [gene_id, gene_name, gene_type, unstranded]
+    genes_file: ./panels/cancer_genes.txt
   methylation:
     probes_file: ./probe_panels/immune_probes.txt
   copy_number:
     outputs: [segments]  # choose from: segments, gene
 ```
+
+RNA gene allowlists match gene symbols, versioned Ensembl IDs, or unversioned
+Ensembl IDs. Variant allowlists match `Hugo_Symbol`. These options reduce rows
+during processing; GDC still transfers complete per-sample source files.
 
 The same mode can be enabled from flags for ad hoc pulls:
 
@@ -157,7 +164,8 @@ tcga-pull dataset ./cohorts/pancancer_multiomics \
 This writes `model_dataset/` under the cohort with `samples.parquet`,
 `feature_index.parquet`, one matrix parquet per modality, and a JSON manifest.
 For strict tumor-only model inputs, include `sample_type: [Primary Tumor]` in
-the cohort filter before download.
+the cohort filter before download. Use `platform` when selections must use the
+same assay, for example `platform: Illumina Human Methylation 450`.
 
 ## Python API
 

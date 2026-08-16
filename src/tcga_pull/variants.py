@@ -32,8 +32,11 @@ double-counting multi-aliquot patients.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
+
+from .config import allowed_values
 
 # Source columns we keep from the MAF (GDC's "Aliquot Ensemble Masked" schema).
 # Order is just for readability; final column order is set at the end.
@@ -267,7 +270,7 @@ OUTPUT_COLUMN_ORDER: list[str] = [
 ]
 
 
-def aggregate_mafs(paths: list[Path]) -> pd.DataFrame:
+def aggregate_mafs(paths: list[Path], *, genes: set[str] | None = None) -> pd.DataFrame:
     """Reusable building block: read a list of MAFs, project to our schema,
     add row-level flags, concatenate. Cohort-wide context (clinical join,
     primary_aliquot selection) lives in `aggregate_cohort`."""
@@ -279,10 +282,14 @@ def aggregate_mafs(paths: list[Path]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     variants = pd.concat(frames, ignore_index=True)
+    if genes is not None:
+        variants = variants[variants["hugo_symbol"].isin(genes)].copy()
     return _add_flags(variants)
 
 
-def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
+def aggregate_cohort(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> pd.DataFrame:
     """Walk cohort_dir/data/<submitter>/simple_nucleotide_variation/*.maf.gz,
     concatenate, join clinical lineage cols, mark primary aliquot, order cols.
     """
@@ -293,7 +300,11 @@ def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
             f"no .maf.gz files under {cohort_dir}/data/*/simple_nucleotide_variation/"
         )
 
-    variants = aggregate_mafs(mafs)
+    options = recipe_options or {}
+    if "variants" in options and isinstance(options["variants"], dict):
+        options = options["variants"]
+    genes = allowed_values(options, "genes", "genes_file")
+    variants = aggregate_mafs(mafs, genes=genes)
 
     # Join in project_id + primary_diagnosis from clinical.parquet
     clin_path = cohort_dir / "clinical.parquet"
@@ -313,8 +324,8 @@ def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
     return ordered
 
 
-def write_variants(cohort_dir: Path) -> Path:
-    df = aggregate_cohort(cohort_dir)
+def write_variants(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    df = aggregate_cohort(cohort_dir, recipe_options)
     out = Path(cohort_dir) / "variants.parquet"
     df.to_parquet(out, index=False)
     return out

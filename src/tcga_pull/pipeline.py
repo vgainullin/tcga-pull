@@ -393,7 +393,7 @@ def _delete_batch_raw(records: list[dict], *, recipes: list[str]) -> None:
 def _recipe_variants(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:
     from .variants_polars import write_variants
 
-    write_variants(cohort_dir)
+    write_variants(cohort_dir, recipe_options)
 
 
 def _recipe_samples(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> None:

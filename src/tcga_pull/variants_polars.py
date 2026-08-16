@@ -15,9 +15,11 @@ Key differences vs pandas:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
+from .config import allowed_values
 from .variants import (
     _TCGA_NORMAL_TYPES,
     HIGH_IMPACT_LEVELS,
@@ -125,17 +127,21 @@ def _mark_primary_aliquot(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(primary_aliquot=pl.col("tumor_barcode").is_in(primary_set))
 
 
-def aggregate_mafs(paths: list[Path]) -> pl.DataFrame:
+def aggregate_mafs(paths: list[Path], *, genes: set[str] | None = None) -> pl.DataFrame:
     """Read + project + flag + concat. Stays lazy until the final collect."""
     if not paths:
         return pl.DataFrame()
     scans = [_scan_maf(p) for p in paths]
     lf = pl.concat(scans, how="vertical_relaxed")
+    if genes is not None:
+        lf = lf.filter(pl.col("hugo_symbol").is_in(sorted(genes)))
     lf = _add_flags(lf)
     return lf.collect()
 
 
-def aggregate_cohort(cohort_dir: Path) -> pl.DataFrame:
+def aggregate_cohort(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> pl.DataFrame:
     """End-to-end: walk cohort, read MAFs, add flags, join clinical, mark
     primary aliquot, order columns."""
     cohort_dir = Path(cohort_dir)
@@ -145,7 +151,11 @@ def aggregate_cohort(cohort_dir: Path) -> pl.DataFrame:
             f"no .maf.gz files under {cohort_dir}/data/*/simple_nucleotide_variation/"
         )
 
-    variants = aggregate_mafs(mafs)
+    options = recipe_options or {}
+    if "variants" in options and isinstance(options["variants"], dict):
+        options = options["variants"]
+    genes = allowed_values(options, "genes", "genes_file")
+    variants = aggregate_mafs(mafs, genes=genes)
 
     # Join clinical (project_id, submitter_id, primary_diagnosis)
     clin_path = cohort_dir / "clinical.parquet"
@@ -169,8 +179,8 @@ def aggregate_cohort(cohort_dir: Path) -> pl.DataFrame:
     return variants.select(front + rest)
 
 
-def write_variants(cohort_dir: Path) -> Path:
-    df = aggregate_cohort(cohort_dir)
+def write_variants(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    df = aggregate_cohort(cohort_dir, recipe_options)
     out = Path(cohort_dir) / "variants.parquet"
     df.write_parquet(out)
     return out
