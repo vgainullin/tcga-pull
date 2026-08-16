@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import json
 import re
 import shutil
 import subprocess
@@ -238,7 +239,15 @@ def restructure(
         src = download_dir / file_id / file_name
         if not src.exists():
             # gdc-client sometimes nests differently if state is partial; skip with note
-            records.append({**_record_base(h), "local_path": None, "status": "missing"})
+            records.append(
+                {
+                    **_record_base(h),
+                    **_case_sample_metadata(h),
+                    "data_category": h.get("data_category"),
+                    "local_path": None,
+                    "status": "missing",
+                }
+            )
             continue
 
         cat = slugify(h.get("data_category"))
@@ -246,9 +255,8 @@ def restructure(
         if case is None:
             dest_dir = cohort_data_dir / "_multi" / cat
             submitter = None
-            case_id = None
         else:
-            case_id, submitter = case
+            _, submitter = case
             dest_dir = cohort_data_dir / submitter / cat
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / file_name
@@ -264,8 +272,7 @@ def restructure(
         records.append(
             {
                 **_record_base(h),
-                "case_id": case_id,
-                "submitter_id": submitter,
+                **_case_sample_metadata(h),
                 "data_category": h.get("data_category"),
                 "local_path": str(dest),
                 "status": "ok",
@@ -283,6 +290,48 @@ def _record_base(h: dict) -> dict:
         "data_format": h.get("data_format"),
         "experimental_strategy": h.get("experimental_strategy"),
         "workflow_type": workflow,
+        "platform": h.get("platform"),
         "md5sum": h.get("md5sum"),
         "file_size": h.get("file_size"),
+    }
+
+
+def _case_sample_metadata(h: dict) -> dict:
+    """Preserve file-to-case/sample provenance without guessing ambiguous links.
+
+    GDC omics files normally resolve to one case and one sample. When a file
+    resolves to multiple cases or samples, scalar identifiers stay null and the
+    original sample objects remain available in ``samples_json``.
+    """
+    cases = h.get("cases") or []
+    if len(cases) != 1:
+        return {
+            "n_cases": len(cases),
+            "cases_json": json.dumps(cases, sort_keys=True),
+            "case_id": None,
+            "submitter_id": None,
+            "project_id": None,
+            "n_samples": None,
+            "samples_json": None,
+            "sample_id": None,
+            "sample_submitter_id": None,
+            "sample_type": None,
+            "tissue_type": None,
+        }
+
+    case = cases[0]
+    samples = case.get("samples") or []
+    sample = samples[0] if len(samples) == 1 else {}
+    return {
+        "n_cases": 1,
+        "cases_json": json.dumps(cases, sort_keys=True),
+        "case_id": case.get("case_id"),
+        "submitter_id": case.get("submitter_id") or case.get("case_id"),
+        "project_id": (case.get("project") or {}).get("project_id"),
+        "n_samples": len(samples),
+        "samples_json": json.dumps(samples, sort_keys=True),
+        "sample_id": sample.get("sample_id"),
+        "sample_submitter_id": sample.get("submitter_id"),
+        "sample_type": sample.get("sample_type"),
+        "tissue_type": sample.get("tissue_type"),
     }

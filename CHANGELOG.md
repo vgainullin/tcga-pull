@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RPPA `AGID` values as protein identifiers.
 
 ### Added
+- File/sample provenance in `manifest.parquet` and normalized omics outputs,
+  including sample barcode/type, tissue type, project, platform, and lossless
+  JSON for ambiguous GDC file associations.
 - `tcga-pull case-set` and `preview` / `pull --case-set` — deterministically
   select one per-project-capped case set from a primary/optional-omics N-way
   intersection, persist it as provenance-rich JSON, and reuse it across every

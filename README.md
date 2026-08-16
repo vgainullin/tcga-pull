@@ -129,6 +129,12 @@ The same mode can be enabled from flags for ad hoc pulls:
 tcga-pull pull cohort.yaml --incremental --processing-batch-size 200 --delete-raw-after-processing
 ```
 
+Normalized omics rows retain their GDC file, case, sample, sample type, tissue
+type, project, workflow, and platform identifiers. `manifest.parquet` also keeps
+the complete case/sample associations as JSON when a file maps ambiguously.
+This allows downstream tools to construct sample-level tumor/normal cohorts
+without inferring sample identity from filenames or patient-level joins.
+
 If the raw files are already downloaded, build just the non-SNV omics parquets
 with:
 
@@ -180,11 +186,11 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 | `variants` | `variants.parquet` | one per (variant × tumor aliquot) |
 | `samples` | `samples.parquet` | one per case (clinical + tissue + burden) |
 | `frequency` | `gene_frequency.parquet`, `variant_frequency.parquet` | per (gene or variant, tissue) |
-| `rna_expression` | `rna_expression.parquet` | one per (case × gene) |
-| `mirna_expression` | `mirna_expression.parquet` | one per (case × miRNA) |
-| `methylation` | `methylation_beta.parquet` | one per (case × methylation probe) |
-| `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | segment-level and gene-level CNV |
-| `protein_expression` | `protein_expression.parquet` | one per (case × RPPA target) |
+| `rna_expression` | `rna_expression.parquet` | one per (sample file × gene) |
+| `mirna_expression` | `mirna_expression.parquet` | one per (sample file × miRNA) |
+| `methylation` | `methylation_beta.parquet` | one per (sample file × methylation probe) |
+| `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | sample-file segment-level and gene-level CNV |
+| `protein_expression` | `protein_expression.parquet` | one per (sample file × RPPA target) |
 | `multiomics` | all non-SNV omics parquets above | batch processor |
 | `model_dataset` | `model_dataset/*.parquet`, `model_dataset/manifest.json` | case-aligned training matrices |
 

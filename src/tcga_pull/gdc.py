@@ -32,9 +32,12 @@ FILE_FIELDS: list[str] = [
     "access",
     "md5sum",
     "file_size",
+    "platform",
     "cases.case_id",
     "cases.submitter_id",
     "cases.project.project_id",
+    "cases.samples.sample_id",
+    "cases.samples.submitter_id",
     "cases.samples.sample_type",
     "cases.samples.tissue_type",
 ]

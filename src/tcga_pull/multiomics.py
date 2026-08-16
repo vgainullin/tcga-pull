@@ -20,11 +20,17 @@ import pyarrow.parquet as pq
 COMMON_FIELDS: tuple[pa.Field, ...] = (
     pa.field("case_id", pa.string()),
     pa.field("submitter_id", pa.string()),
+    pa.field("project_id", pa.string()),
+    pa.field("sample_id", pa.string()),
+    pa.field("sample_submitter_id", pa.string()),
+    pa.field("sample_type", pa.string()),
+    pa.field("tissue_type", pa.string()),
     pa.field("file_id", pa.string()),
     pa.field("file_name", pa.string()),
     pa.field("data_type", pa.string()),
     pa.field("experimental_strategy", pa.string()),
     pa.field("workflow_type", pa.string()),
+    pa.field("platform", pa.string()),
 )
 
 RNA_SCHEMA = pa.schema(
@@ -574,11 +580,17 @@ def _with_common(df: pd.DataFrame, row: dict[str, Any]) -> pd.DataFrame:
     for col in (
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
     ):
         out[col] = row.get(col)
     return out

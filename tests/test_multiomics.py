@@ -68,10 +68,16 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
                 "file_name": "rna.tsv",
                 "case_id": "case-1",
                 "submitter_id": "TCGA-XX-0001",
+                "project_id": "TCGA-BRCA",
+                "sample_id": "sample-1",
+                "sample_submitter_id": "TCGA-XX-0001-01A",
+                "sample_type": "Primary Tumor",
+                "tissue_type": "Tumor",
                 "data_category": "Transcriptome Profiling",
                 "data_type": "Gene Expression Quantification",
                 "experimental_strategy": "RNA-Seq",
                 "workflow_type": "STAR - Counts",
+                "platform": "Illumina",
                 "local_path": rna_path,
                 "status": "ok",
             },
@@ -153,6 +159,8 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
     assert rna.height == 1
     assert rna.row(0, named=True)["gene_name"] == "TP53"
     assert rna.row(0, named=True)["unstranded"] == 42
+    assert rna.row(0, named=True)["sample_submitter_id"] == "TCGA-XX-0001-01A"
+    assert rna.row(0, named=True)["sample_type"] == "Primary Tumor"
 
     mirna = pl.read_parquet(cohort / "mirna_expression.parquet")
     assert mirna.row(0, named=True)["mirna_id"] == "hsa-let-7a-1"
@@ -322,11 +330,17 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     assert rna.columns == [
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
         "gene_id",
         "gene_name",
         "unstranded",
@@ -382,11 +396,17 @@ def test_write_multiomics_parts_finalizes_directory_parquet(tmp_path: Path):
     assert df.columns == [
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
         "gene_id",
         "gene_name",
         "unstranded",
@@ -582,11 +602,17 @@ def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, mon
     assert rna.columns == [
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
         "gene_id",
         "gene_name",
         "unstranded",
