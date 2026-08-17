@@ -616,6 +616,51 @@ def multiomics_cmd(
             console.print(f"  {path}")
 
 
+@app.command("integrate")
+def integrate_cmd(
+    cohort_dir: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        help="A processed cohort dir with samples and one or more omics parquets.",
+    ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        exists=True,
+        dir_okay=False,
+        help="Cohort YAML whose recipe_options.integrate should be applied.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Output directory. Defaults to <cohort>/integrated.",
+    ),
+) -> None:
+    """Merge processed modalities by sample and explicit biological entity."""
+    recipe_options = {}
+    if config is not None:
+        from .config import load_yaml
+
+        recipe_options = load_yaml(config).recipe_options
+    try:
+        outputs = services.write_integration_recipe(
+            cohort_dir,
+            recipe_options=recipe_options,
+            out_dir=out_dir,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    console.print(f"[green]wrote integrated dataset[/green] -> {outputs.path}")
+    console.print(f"  values    : {outputs.values}")
+    console.print(f"  integrated: {outputs.integrated}")
+    console.print(f"  mappings  : {outputs.mappings}")
+    console.print(f"  manifest  : {outputs.manifest}")
+
+
 @app.command("dataset")
 def dataset_cmd(
     cohort_dir: Path = typer.Argument(

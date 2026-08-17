@@ -154,6 +154,48 @@ with:
 tcga-pull multiomics ./cohorts/pancancer_multiomics
 ```
 
+To merge processed modalities by both sample and biological entity, run:
+
+```sh
+tcga-pull integrate ./cohorts/pancancer_multiomics --config cohort.yaml
+```
+
+Direct gene-level sources (SNV, RNA, gene CNV, and RPPA) share the
+`gene_symbol` namespace. Methylation remains in the `cpg_probe` namespace
+unless an explicit, versioned probe annotation is supplied:
+
+```yaml
+recipe_options:
+  integrate:
+    modalities:
+      snv: {}
+      rna_expression: {}
+      gene_copy_number: {}
+      protein_expression: {}
+      methylation_beta:
+        entity_column: gene_symbol
+        entity_type: gene_symbol
+        normalize: uppercase
+        aggregation: mean
+        mapping:
+          file: /data/annotations/illumina-450k.tsv
+          source_column: IlmnID
+          entity_column: UCSC_RefGene_Name
+          separator: ";"
+          filters:
+            UCSC_RefGene_Group: [TSS1500, TSS200, 5'UTR, 1stExon]
+```
+
+The mapping file may be TSV, CSV, or parquet. One-to-many mappings are expanded;
+many source features mapping to the same sample/entity are combined using the
+declared aggregation. Mapping paths and SHA-256 digests are recorded in
+`cohort.json`. Custom modalities use the same contract by declaring
+`source_file`, `feature_column`, `entity_column`, `entity_type`, `value_column`,
+and `aggregation`. The default join is case-level (`submitter_id`). Set
+`integrate.join_on` to `sample_id` or `sample_submitter_id` when exact assay
+sample alignment is required. No cross-namespace biological relationship is
+inferred.
+
 Apply a variant panel to an existing download with the same cohort config:
 
 ```sh
@@ -193,6 +235,7 @@ cohort.samples
 cohort.gene_frequency
 cohort.rna_expression
 cohort.methylation_beta
+cohort.integrated
 cohort.model_dataset
 cohort.provenance
 ```
@@ -213,6 +256,7 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 | `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | sample-file segment-level and gene-level CNV |
 | `protein_expression` | `protein_expression.parquet` | one per (sample file × RPPA target) |
 | `multiomics` | all non-SNV omics parquets above | batch processor |
+| `integrate` | `integrated/*.parquet`, `integrated/manifest.json` | sample/entity-aligned values |
 | `model_dataset` | `model_dataset/*.parquet`, `model_dataset/manifest.json` | case-aligned training matrices |
 
 The pull / restructure / clinical / manifest layer is data-type-agnostic; new

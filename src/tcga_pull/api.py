@@ -74,6 +74,30 @@ class ModelDataset:
 
 
 @dataclass
+class IntegratedDataset:
+    """Read-only view over <cohort>/integrated outputs."""
+
+    path: Path
+
+    @cached_property
+    def values(self) -> pl.DataFrame:
+        return pl.read_parquet(self.path / "values.parquet")
+
+    @cached_property
+    def integrated(self) -> pl.DataFrame:
+        return pl.read_parquet(self.path / "integrated.parquet")
+
+    @cached_property
+    def mappings(self) -> pl.DataFrame:
+        return pl.read_parquet(self.path / "mappings.parquet")
+
+    @cached_property
+    def manifest(self) -> dict[str, Any]:
+        p = self.path / "manifest.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+
+@dataclass
 class Cohort:
     """Read-only view over a tcga-pull cohort directory.
 
@@ -93,6 +117,7 @@ class Cohort:
       - copy_number_segments.parquet
       - gene_copy_number.parquet
       - protein_expression.parquet
+      - integrated/     (entity-aware integration outputs)
       - cohort.json    (provenance sidecar)
     """
 
@@ -180,6 +205,11 @@ class Cohort:
         p = self.path / "model_dataset"
         return ModelDataset(p) if p.exists() else None
 
+    @cached_property
+    def integrated(self) -> IntegratedDataset | None:
+        p = self.path / "integrated"
+        return IntegratedDataset(p) if p.exists() else None
+
     # --- provenance ------------------------------------------------------------
 
     @cached_property
@@ -215,6 +245,8 @@ class Cohort:
         out["n_model_dataset_samples"] = (
             len(model_dataset.samples) if model_dataset is not None else 0
         )
+        integrated = self.integrated
+        out["n_integrated_values"] = len(integrated.values) if integrated is not None else 0
         return out
 
 
