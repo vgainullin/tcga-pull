@@ -22,6 +22,7 @@ cohort/
   copy_number_segments.parquet # optional: one row per (sample file × CNV segment)
   gene_copy_number.parquet   # optional: one row per (sample file × gene CNV)
   protein_expression.parquet # optional: one row per (sample file × RPPA target)
+  integrated/                # optional: entity-aware multiomics merge
   model_dataset/             # optional: case-aligned training matrices
   cohort.json                # resolved filter + counts + timestamp
   data/<submitter_id>/<data_category>/<file>   # raw downloaded files
@@ -53,6 +54,63 @@ directory-style parquet datasets with `part-*.parquet` files under the named
 `*.parquet` path. The Python API reads both file and directory parquet outputs.
 Recipe-specific options may reduce columns or rows, for example RNA column
 selection, methylation probe allowlists, or choosing only segment-level CNV.
+
+---
+
+## `integrated/` (optional, produced by `tcga-pull integrate` or recipe `integrate`)
+
+Directory layout:
+
+```
+integrated/
+  manifest.json
+  values.parquet
+  integrated.parquet
+  mappings.parquet
+```
+
+`values.parquet` is the lossless normalized integration contract. It contains
+one row per observed `(case, entity namespace, entity, modality)` after the
+declared within-modality aggregation:
+
+| column | type | notes |
+|---|---|---|
+| `case_id` | Utf8 | GDC case UUID |
+| `submitter_id` | Utf8 | shared sample/case join key |
+| `join_id` | Utf8 | value of configured `join_on`; case or exact assay sample |
+| `entity_type` | Utf8 | namespace such as `gene_symbol`, `cpg_probe`, or `mirna` |
+| `entity_id` | Utf8 | identifier normalized according to recipe configuration |
+| `modality` | Utf8 | source modality name |
+| `value` | Float64 | aggregated numeric value |
+| `aggregation` | Utf8 | `mean`, `median`, `min`, `max`, `sum`, or `binary_any` |
+| `n_source_features` | UInt32 | distinct source features contributing to the value |
+| `n_source_rows` | UInt32 | source observations contributing to the value |
+
+`integrated.parquet` pivots modality names into columns and contains one row per
+`(case_id, submitter_id, join_id, entity_type, entity_id)`. `join_id` is the
+configured `join_on` column: `submitter_id` by default, or `sample_id` /
+`sample_submitter_id` for exact assay-sample matching. Modalities only share a
+row when both the configured sample identity and entity namespace/identifier
+match. Nulls remain null; the integration layer does not impute absent
+measurements.
+
+`mappings.parquet` records each observed direct, built-in annotation, or
+external feature mapping:
+
+```
+modality, source_feature_id, source_platform, entity_type, entity_id,
+mapping_type, annotation_release, annotation_url, annotation_sha256,
+genome_build, gene_region
+```
+
+`manifest.json` records effective modality specifications, aggregation and
+normalization rules, counts, skipped default modalities, and output paths.
+For methylation, the retained GDC platform selects the pinned HM27, HM450, EPIC,
+or EPIC v2 hg38/GENCODE v41 annotation automatically. Source URLs, release,
+SHA-256, normalized mapping path, regions, and counts are persisted in the
+manifest and `cohort.json`; the verified source and analysis-ready mapping live
+under `annotations/`. External mapping file paths, SHA-256 digests, and sizes
+are persisted using the same provenance contract.
 
 ---
 

@@ -47,6 +47,7 @@ KNOWN_RECIPES: tuple[str, ...] = (
     "copy_number",
     "protein_expression",
     "multiomics",
+    "integrate",
     "model_dataset",
 )
 
@@ -87,7 +88,7 @@ def resolve_recipe_options(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve file-backed panels once and return processing + provenance forms."""
     resolved = copy.deepcopy(recipe_options or {})
-    inputs: dict[str, dict[str, dict[str, Any]]] = {}
+    inputs: dict[str, Any] = {}
 
     for recipe, key, file_key in PANEL_OPTION_FIELDS:
         options = resolved.get(recipe)
@@ -111,6 +112,26 @@ def resolve_recipe_options(
             options[key] = sorted(values)
         else:
             options.pop(key, None)
+
+    integrate_options = resolved.get("integrate")
+    if isinstance(integrate_options, dict):
+        modalities = integrate_options.get("modalities")
+        if isinstance(modalities, dict):
+            for modality, modality_options in modalities.items():
+                if not isinstance(modality_options, dict):
+                    continue
+                mapping = modality_options.get("mapping")
+                if not isinstance(mapping, dict) or not mapping.get("file"):
+                    continue
+                path = Path(str(mapping["file"])).expanduser().resolve()
+                content = path.read_bytes()
+                mapping["file"] = str(path)
+                integration_inputs = inputs.setdefault("integrate", {}).setdefault("modalities", {})
+                integration_inputs.setdefault(str(modality), {})["mapping_file"] = {
+                    "source": str(path),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "size_bytes": len(content),
+                }
 
     provenance = {"options": copy.deepcopy(resolved), "inputs": inputs}
     return resolved, provenance

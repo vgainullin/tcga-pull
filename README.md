@@ -154,6 +154,50 @@ with:
 tcga-pull multiomics ./cohorts/pancancer_multiomics
 ```
 
+To merge processed modalities by both sample and biological entity, run:
+
+```sh
+tcga-pull integrate ./cohorts/pancancer_multiomics --config cohort.yaml
+```
+
+Direct gene-level sources (SNV, RNA, gene CNV, and RPPA) share the
+`gene_symbol` namespace. Methylation is mapped into that namespace
+automatically using the `platform` retained from GDC. tcga-pull supports HM27,
+HM450, EPIC, and EPIC v2 and downloads the matching hg38/GENCODE v41
+InfiniumAnnotation v8.1 table into the cohort's `annotations/` directory. The
+source and normalized mapping are checksum-verified and recorded in both the
+integration manifest and `cohort.json`. The annotation source follows the
+[GDC improved probe annotation guidance](https://gdc.cancer.gov/content/improved-dna-methylation-array-probe-annotation)
+and is pinned by content hash because its upstream download URL is mutable.
+
+By default, methylation uses probes within 1,500 bases of a transcription start
+site and averages their beta values per gene. Include annotated gene-body probes
+when required:
+
+```yaml
+recipe_options:
+  integrate:
+    modalities:
+      methylation_beta:
+        annotation_regions: [promoter, body]
+```
+
+Each methylation join identifier must resolve to one array platform; filter the
+cohort by `platform` or use an exact sample join if a case contains multiple
+arrays. Unknown or missing platforms fail with an actionable error rather than
+dropping probes.
+
+For custom assays or annotations, `mapping.file` remains available as an
+explicit override. Mapping tables may be TSV, CSV, or parquet. One-to-many
+mappings are expanded; many source features mapping to the same sample/entity
+are combined using the declared aggregation. Custom modalities use the same
+general contract by declaring
+`source_file`, `feature_column`, `entity_column`, `entity_type`, `value_column`,
+and `aggregation`. The default join is case-level (`submitter_id`). Set
+`integrate.join_on` to `sample_id` or `sample_submitter_id` when exact assay
+sample alignment is required. No cross-namespace biological relationship is
+inferred.
+
 Apply a variant panel to an existing download with the same cohort config:
 
 ```sh
@@ -193,6 +237,7 @@ cohort.samples
 cohort.gene_frequency
 cohort.rna_expression
 cohort.methylation_beta
+cohort.integrated
 cohort.model_dataset
 cohort.provenance
 ```
@@ -213,6 +258,7 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 | `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | sample-file segment-level and gene-level CNV |
 | `protein_expression` | `protein_expression.parquet` | one per (sample file × RPPA target) |
 | `multiomics` | all non-SNV omics parquets above | batch processor |
+| `integrate` | `integrated/*.parquet`, `integrated/manifest.json` | sample/entity-aligned values |
 | `model_dataset` | `model_dataset/*.parquet`, `model_dataset/manifest.json` | case-aligned training matrices |
 
 The pull / restructure / clinical / manifest layer is data-type-agnostic; new

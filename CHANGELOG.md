@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RPPA `AGID` values as protein identifiers.
 
 ### Added
+- `tcga-pull integrate` and recipe `integrate` — joins processed modalities by
+  cohort sample and explicit entity namespace, with direct/custom feature
+  mappings, external versioned mapping tables, declared many-to-one aggregation,
+  mapping provenance, and normalized long plus entity-centric wide outputs.
+- Self-contained methylation integration for GDC HM27, HM450, EPIC, and EPIC v2:
+  automatically downloads checksum-pinned hg38/GENCODE v41 InfiniumAnnotation
+  v8.1 tables, maps promoter probes to gene symbols, and records source and
+  normalized annotation provenance inside the cohort.
 - File/sample provenance in `manifest.parquet` and normalized omics outputs,
   including sample barcode/type, tissue type, project, platform, and lossless
   JSON for ambiguous GDC file associations.

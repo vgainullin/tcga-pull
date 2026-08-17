@@ -136,6 +136,43 @@ def test_dataset_command_passes_options_to_service(tmp_path: Path, monkeypatch):
     assert captured["kwargs"]["seed"] == 42
 
 
+def test_integrate_command_passes_config_to_service(tmp_path: Path, monkeypatch):
+    cohort = tmp_path / "cohort"
+    cohort.mkdir()
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: c\n"
+        "filters: {project: TCGA-BRCA}\n"
+        "recipe_options:\n"
+        "  integrate:\n"
+        "    modalities: [rna_expression]\n"
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_write_integration_recipe(*args: Any, **kwargs: Any):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        out = tmp_path / "integrated"
+        return services.IntegrationOutputs(
+            path=out,
+            values=out / "values.parquet",
+            integrated=out / "integrated.parquet",
+            mappings=out / "mappings.parquet",
+            manifest=out / "manifest.json",
+        )
+
+    monkeypatch.setattr(services, "write_integration_recipe", fake_write_integration_recipe)
+
+    result = runner.invoke(
+        cli.app,
+        ["integrate", str(cohort), "--config", str(yaml_path)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"] == (cohort,)
+    assert captured["kwargs"]["recipe_options"]["integrate"]["modalities"] == ["rna_expression"]
+
+
 def test_variants_command_passes_config_options_to_service(tmp_path: Path, monkeypatch):
     cohort = tmp_path / "cohort"
     cohort.mkdir()
