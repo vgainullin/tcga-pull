@@ -22,6 +22,7 @@ from .config import (
     from_flags,
     load_yaml,
     read_projects_file,
+    resolve_recipe_options,
 )
 from .coverage import CoverageMatrix, CoverageOutputs
 from .download import write_manifest_tsv
@@ -350,9 +351,19 @@ def resolve_samples_writer(engine: str):
     raise ValueError(f"unknown engine: {engine!r} (use 'polars' or 'pandas')")
 
 
-def write_variants_recipe(cohort_dir: Path, *, engine: str = "polars") -> RecipeOutput:
+def write_variants_recipe(
+    cohort_dir: Path,
+    *,
+    engine: str = "polars",
+    recipe_options: dict[str, Any] | None = None,
+) -> RecipeOutput:
+    from .layout import update_recipe_provenance
+
     writer = resolve_variants_writer(engine)
-    return RecipeOutput(path=writer(cohort_dir), engine=engine)
+    resolved_options, provenance = resolve_recipe_options(recipe_options)
+    output = RecipeOutput(path=writer(cohort_dir, resolved_options), engine=engine)
+    update_recipe_provenance(cohort_dir, provenance, replace_recipes={"variants"})
+    return output
 
 
 def write_samples_recipe(cohort_dir: Path, *, engine: str = "polars") -> RecipeOutput:
@@ -374,6 +385,7 @@ def write_multiomics_recipe(
     *,
     recipe_options: dict[str, Any] | None = None,
 ) -> MultiomicsOutputs:
+    from .layout import update_recipe_provenance
     from .multiomics import (
         write_copy_number,
         write_methylation_beta,
@@ -382,15 +394,34 @@ def write_multiomics_recipe(
         write_rna_expression,
     )
 
-    copy_number_segments, gene_copy_number = write_copy_number(cohort_dir, recipe_options)
-    return MultiomicsOutputs(
-        rna_expression=write_rna_expression(cohort_dir, recipe_options),
-        mirna_expression=write_mirna_expression(cohort_dir, recipe_options),
-        methylation_beta=write_methylation_beta(cohort_dir, recipe_options),
+    resolved_options, provenance = resolve_recipe_options(recipe_options)
+    copy_number_segments, gene_copy_number = write_copy_number(cohort_dir, resolved_options)
+    outputs = MultiomicsOutputs(
+        rna_expression=write_rna_expression(cohort_dir, resolved_options),
+        mirna_expression=write_mirna_expression(cohort_dir, resolved_options),
+        methylation_beta=write_methylation_beta(cohort_dir, resolved_options),
         copy_number_segments=copy_number_segments,
         gene_copy_number=gene_copy_number,
-        protein_expression=write_protein_expression(cohort_dir, recipe_options),
+        protein_expression=write_protein_expression(cohort_dir, resolved_options),
     )
+    update_recipe_provenance(
+        cohort_dir,
+        provenance,
+        replace_recipes={
+            "rna_expression",
+            "rna",
+            "mirna_expression",
+            "mirna",
+            "methylation",
+            "methylation_beta",
+            "copy_number",
+            "copy_number_segments",
+            "gene_copy_number",
+            "protein_expression",
+            "protein",
+        },
+    )
+    return outputs
 
 
 def write_model_dataset_recipe(

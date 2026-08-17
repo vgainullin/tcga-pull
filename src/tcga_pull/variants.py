@@ -32,8 +32,11 @@ double-counting multi-aliquot patients.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
+
+from .config import allowed_values
 
 # Source columns we keep from the MAF (GDC's "Aliquot Ensemble Masked" schema).
 # Order is just for readability; final column order is set at the end.
@@ -267,7 +270,7 @@ OUTPUT_COLUMN_ORDER: list[str] = [
 ]
 
 
-def aggregate_mafs(paths: list[Path]) -> pd.DataFrame:
+def aggregate_mafs(paths: list[Path], *, genes: set[str] | None = None) -> pd.DataFrame:
     """Reusable building block: read a list of MAFs, project to our schema,
     add row-level flags, concatenate. Cohort-wide context (clinical join,
     primary_aliquot selection) lives in `aggregate_cohort`."""
@@ -279,10 +282,12 @@ def aggregate_mafs(paths: list[Path]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     variants = pd.concat(frames, ignore_index=True)
+    if genes is not None:
+        variants = variants[variants["hugo_symbol"].isin(genes)].copy()
     return _add_flags(variants)
 
 
-def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
+def _aggregate_cohort_unfiltered(cohort_dir: Path) -> pd.DataFrame:
     """Walk cohort_dir/data/<submitter>/simple_nucleotide_variation/*.maf.gz,
     concatenate, join clinical lineage cols, mark primary aliquot, order cols.
     """
@@ -313,8 +318,33 @@ def aggregate_cohort(cohort_dir: Path) -> pd.DataFrame:
     return ordered
 
 
-def write_variants(cohort_dir: Path) -> Path:
-    df = aggregate_cohort(cohort_dir)
-    out = Path(cohort_dir) / "variants.parquet"
+def _filter_cohort_genes(
+    variants: pd.DataFrame, recipe_options: dict[str, Any] | None
+) -> pd.DataFrame:
+    options = recipe_options or {}
+    if "variants" in options and isinstance(options["variants"], dict):
+        options = options["variants"]
+    genes = allowed_values(options, "genes", "genes_file")
+    if genes is None:
+        return variants
+    filtered: pd.DataFrame = variants[variants["hugo_symbol"].isin(genes)].copy()
+    return filtered
+
+
+def aggregate_cohort(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> pd.DataFrame:
+    """Aggregate a cohort, selecting primary aliquots before any gene filter."""
+    return _filter_cohort_genes(_aggregate_cohort_unfiltered(cohort_dir), recipe_options)
+
+
+def write_variants(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    from .samples import VARIANT_SUMMARY_FILE, build_variant_summary
+
+    cohort_dir = Path(cohort_dir)
+    unfiltered = _aggregate_cohort_unfiltered(cohort_dir)
+    build_variant_summary(unfiltered).to_parquet(cohort_dir / VARIANT_SUMMARY_FILE, index=False)
+    df = _filter_cohort_genes(unfiltered, recipe_options)
+    out = cohort_dir / "variants.parquet"
     df.to_parquet(out, index=False)
     return out

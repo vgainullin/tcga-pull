@@ -17,14 +17,22 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .config import allowed_values
+
 COMMON_FIELDS: tuple[pa.Field, ...] = (
     pa.field("case_id", pa.string()),
     pa.field("submitter_id", pa.string()),
+    pa.field("project_id", pa.string()),
+    pa.field("sample_id", pa.string()),
+    pa.field("sample_submitter_id", pa.string()),
+    pa.field("sample_type", pa.string()),
+    pa.field("tissue_type", pa.string()),
     pa.field("file_id", pa.string()),
     pa.field("file_name", pa.string()),
     pa.field("data_type", pa.string()),
     pa.field("experimental_strategy", pa.string()),
     pa.field("workflow_type", pa.string()),
+    pa.field("platform", pa.string()),
 )
 
 RNA_SCHEMA = pa.schema(
@@ -283,10 +291,15 @@ def _recipe_frame_iterators(
 ) -> Iterator[tuple[str, pa.Schema, Iterable[pd.DataFrame]]]:
     if "rna_expression" in selected:
         schema = _schema_for_output("rna_expression", RNA_SCHEMA, recipe_options)
+        options = _output_options(recipe_options, "rna_expression")
         yield (
             "rna_expression",
             schema,
-            (_rna_frame(row, schema) for row in records if _matches_output(row, "rna_expression")),
+            (
+                _rna_frame(row, schema, options)
+                for row in records
+                if _matches_output(row, "rna_expression")
+            ),
         )
     if "mirna_expression" in selected:
         yield (
@@ -412,17 +425,6 @@ def _copy_number_output_enabled(recipe_options: dict[str, Any], output_name: str
     return output_name in {str(item) for item in outputs}
 
 
-def _allowed_set(options: dict[str, Any], key: str, file_key: str) -> set[str] | None:
-    values = set(str(item) for item in options.get(key) or [])
-    path = options.get(file_key)
-    if path:
-        for raw in Path(path).expanduser().read_text().splitlines():
-            value = raw.strip()
-            if value and not value.startswith("#"):
-                values.add(value)
-    return values or None
-
-
 def _read_table(path: Path) -> pd.DataFrame:
     try:
         df = pd.read_csv(path, sep="\t", comment="#", dtype=str, low_memory=False)
@@ -471,13 +473,25 @@ def _normalize_col(value: object) -> str:
     return out.strip("_")
 
 
-def _rna_frame(row: dict[str, Any], schema: pa.Schema = RNA_SCHEMA) -> pd.DataFrame:
+def _rna_frame(
+    row: dict[str, Any],
+    schema: pa.Schema = RNA_SCHEMA,
+    options: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     df = _read_table(Path(row["local_path"]))
     if "gene_id" not in df.columns and len(df.columns) > 0:
         df = df.rename(columns={df.columns[0]: "gene_id"})
     if "gene_id" not in df.columns:
         return _empty_df(RNA_SCHEMA)
     df = df[df["gene_id"].astype(str).str.startswith("ENSG", na=False)].copy()
+    allowed = allowed_values(options or {}, "genes", "genes_file")
+    if allowed is not None:
+        gene_ids = df["gene_id"].astype(str)
+        keep = gene_ids.isin(allowed) | gene_ids.str.split(".").str[0].isin(allowed)
+        gene_name_col = _first_col(df, ("gene_name", "gene"))
+        if gene_name_col is not None:
+            keep |= df[gene_name_col].astype(str).isin(allowed)
+        df = df[keep].copy()
     out = _with_common(df, row)
     out["gene_id"] = _text(df, "gene_id")
     out["gene_name"] = _text(df, "gene_name", "gene")
@@ -511,7 +525,7 @@ def _methylation_frame(
 ) -> pd.DataFrame:
     df = _read_methylation_table(Path(row["local_path"]))
     probe_col = _first_col(df, ("probe_id", "composite_element_ref", "id_ref", "name"))
-    allowed = _allowed_set(options or {}, "probes", "probes_file")
+    allowed = allowed_values(options or {}, "probes", "probes_file")
     if allowed is not None and probe_col is not None:
         df = df[df[probe_col].isin(allowed)].copy()
     out = _with_common(df, row)
@@ -574,11 +588,17 @@ def _with_common(df: pd.DataFrame, row: dict[str, Any]) -> pd.DataFrame:
     for col in (
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
     ):
         out[col] = row.get(col)
     return out

@@ -84,6 +84,7 @@ class Cohort:
       - samples.parquet
 
     Optional files (returned as `None` if missing):
+      - variant_summary.parquet
       - gene_frequency.parquet
       - variant_frequency.parquet
       - rna_expression.parquet
@@ -134,6 +135,11 @@ class Cohort:
         return self._read_required("samples.parquet")
 
     # --- optional parquets -----------------------------------------------------
+
+    @cached_property
+    def variant_summary(self) -> pl.DataFrame | None:
+        """Unfiltered per-case variant burden and canonical aliquot structure."""
+        return self._read_optional("variant_summary.parquet")
 
     @cached_property
     def gene_frequency(self) -> pl.DataFrame | None:

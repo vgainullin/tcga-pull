@@ -15,9 +15,11 @@ Key differences vs pandas:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
+from .config import allowed_values
 from .variants import (
     _TCGA_NORMAL_TYPES,
     HIGH_IMPACT_LEVELS,
@@ -125,17 +127,19 @@ def _mark_primary_aliquot(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(primary_aliquot=pl.col("tumor_barcode").is_in(primary_set))
 
 
-def aggregate_mafs(paths: list[Path]) -> pl.DataFrame:
+def aggregate_mafs(paths: list[Path], *, genes: set[str] | None = None) -> pl.DataFrame:
     """Read + project + flag + concat. Stays lazy until the final collect."""
     if not paths:
         return pl.DataFrame()
     scans = [_scan_maf(p) for p in paths]
     lf = pl.concat(scans, how="vertical_relaxed")
+    if genes is not None:
+        lf = lf.filter(pl.col("hugo_symbol").is_in(sorted(genes)))
     lf = _add_flags(lf)
     return lf.collect()
 
 
-def aggregate_cohort(cohort_dir: Path) -> pl.DataFrame:
+def _aggregate_cohort_unfiltered(cohort_dir: Path) -> pl.DataFrame:
     """End-to-end: walk cohort, read MAFs, add flags, join clinical, mark
     primary aliquot, order columns."""
     cohort_dir = Path(cohort_dir)
@@ -169,8 +173,33 @@ def aggregate_cohort(cohort_dir: Path) -> pl.DataFrame:
     return variants.select(front + rest)
 
 
-def write_variants(cohort_dir: Path) -> Path:
-    df = aggregate_cohort(cohort_dir)
-    out = Path(cohort_dir) / "variants.parquet"
+def _filter_cohort_genes(
+    variants: pl.DataFrame, recipe_options: dict[str, Any] | None
+) -> pl.DataFrame:
+    options = recipe_options or {}
+    if "variants" in options and isinstance(options["variants"], dict):
+        options = options["variants"]
+    genes = allowed_values(options, "genes", "genes_file")
+    if genes is None:
+        return variants
+    return variants.filter(pl.col("hugo_symbol").is_in(sorted(genes)))
+
+
+def aggregate_cohort(
+    cohort_dir: Path, recipe_options: dict[str, Any] | None = None
+) -> pl.DataFrame:
+    """Aggregate a cohort, selecting primary aliquots before any gene filter."""
+    return _filter_cohort_genes(_aggregate_cohort_unfiltered(cohort_dir), recipe_options)
+
+
+def write_variants(cohort_dir: Path, recipe_options: dict[str, Any] | None = None) -> Path:
+    from .samples import VARIANT_SUMMARY_FILE
+    from .samples_polars import build_variant_summary
+
+    cohort_dir = Path(cohort_dir)
+    unfiltered = _aggregate_cohort_unfiltered(cohort_dir)
+    build_variant_summary(unfiltered).write_parquet(cohort_dir / VARIANT_SUMMARY_FILE)
+    df = _filter_cohort_genes(unfiltered, recipe_options)
+    out = cohort_dir / "variants.parquet"
     df.write_parquet(out)
     return out

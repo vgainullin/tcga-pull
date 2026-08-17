@@ -91,3 +91,35 @@ def write_provenance(cohort_dir: Path, payload: dict) -> Path:
     path = cohort_dir / "cohort.json"
     path.write_text(json.dumps(payload, indent=2))
     return path
+
+
+def update_recipe_provenance(
+    cohort_dir: Path,
+    recipe_provenance: dict[str, Any],
+    *,
+    replace_recipes: set[str],
+) -> Path:
+    """Merge successful standalone recipe configuration into cohort.json."""
+    cohort_dir = Path(cohort_dir)
+    cohort_dir.mkdir(parents=True, exist_ok=True)
+    path = cohort_dir / "cohort.json"
+    payload = json.loads(path.read_text()) if path.exists() else {}
+    raw_recipes = payload.get("recipes")
+    recipes: dict[str, Any] = dict(raw_recipes) if isinstance(raw_recipes, dict) else {}
+    options = dict(recipes.get("options") or {})
+    inputs = dict(recipes.get("inputs") or {})
+
+    for recipe in replace_recipes:
+        options.pop(recipe, None)
+        inputs.pop(recipe, None)
+    for recipe, value in (recipe_provenance.get("options") or {}).items():
+        if recipe in replace_recipes:
+            options[recipe] = value
+    for recipe, value in (recipe_provenance.get("inputs") or {}).items():
+        if recipe in replace_recipes:
+            inputs[recipe] = value
+
+    recipes = {**recipes, "options": options, "inputs": inputs}
+    payload["recipes"] = recipes
+    path.write_text(json.dumps(payload, indent=2))
+    return path

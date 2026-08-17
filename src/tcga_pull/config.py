@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ SUGAR_FIELDS: dict[str, str] = {
     "data_format": "data_format",
     "experimental_strategy": "experimental_strategy",
     "workflow": "analysis.workflow_type",
+    "platform": "platform",
     "sample_type": "cases.samples.sample_type",
     "tissue_type": "cases.samples.tissue_type",
     "primary_site": "cases.primary_site",
@@ -46,6 +49,71 @@ KNOWN_RECIPES: tuple[str, ...] = (
     "multiomics",
     "model_dataset",
 )
+
+
+PANEL_OPTION_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("variants", "genes", "genes_file"),
+    ("rna_expression", "genes", "genes_file"),
+    ("rna", "genes", "genes_file"),
+    ("methylation", "probes", "probes_file"),
+    ("methylation_beta", "probes", "probes_file"),
+)
+
+
+def _inline_values(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, (str, int, float, bool)):
+        return {str(value)}
+    return {str(item) for item in value}
+
+
+def _panel_values(text: str) -> set[str]:
+    return {
+        value for raw in text.splitlines() if (value := raw.strip()) and not value.startswith("#")
+    }
+
+
+def allowed_values(options: dict[str, Any], key: str, file_key: str) -> set[str] | None:
+    values = _inline_values(options.get(key))
+    path = options.get(file_key)
+    if path:
+        values.update(_panel_values(Path(path).expanduser().read_text()))
+    return values or None
+
+
+def resolve_recipe_options(
+    recipe_options: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve file-backed panels once and return processing + provenance forms."""
+    resolved = copy.deepcopy(recipe_options or {})
+    inputs: dict[str, dict[str, dict[str, Any]]] = {}
+
+    for recipe, key, file_key in PANEL_OPTION_FIELDS:
+        options = resolved.get(recipe)
+        if not isinstance(options, dict):
+            continue
+
+        values = _inline_values(options.get(key))
+        source = options.pop(file_key, None)
+        if source:
+            path = Path(source).expanduser().resolve()
+            content = path.read_bytes()
+            file_values = _panel_values(content.decode("utf-8"))
+            values.update(file_values)
+            inputs.setdefault(recipe, {})[file_key] = {
+                "source": str(path),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "n_values": len(file_values),
+            }
+
+        if values:
+            options[key] = sorted(values)
+        else:
+            options.pop(key, None)
+
+    provenance = {"options": copy.deepcopy(resolved), "inputs": inputs}
+    return resolved, provenance
 
 
 @dataclass

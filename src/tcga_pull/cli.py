@@ -450,12 +450,27 @@ def variants(
     engine: str = typer.Option(
         "polars", "--engine", help="polars (default) or pandas. Both produce identical parquet."
     ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        exists=True,
+        dir_okay=False,
+        help="Cohort YAML whose recipe_options.variants should be applied.",
+    ),
 ) -> None:
     """Aggregate per-case MAFs into <cohort>/variants.parquet (one row per variant)."""
     import polars as pl
 
     _resolve_variants_engine(engine)
-    out = services.write_variants_recipe(cohort_dir, engine=engine).path
+    recipe_options = {}
+    if config is not None:
+        from .config import load_yaml
+
+        recipe_options = load_yaml(config).recipe_options
+    out = services.write_variants_recipe(
+        cohort_dir, engine=engine, recipe_options=recipe_options
+    ).path
     df = pl.read_parquet(out)
     console.print(
         f"[green]wrote[/green] {out}  ({len(df):,} variants x {df.width} cols, engine={engine})"

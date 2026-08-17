@@ -13,14 +13,15 @@ cohort/
   manifest.tsv               # the manifest sent to gdc-client (provenance)
   samples.parquet            # one row per case, with derived tissue + burden
   variants.parquet           # one row per (variant × tumor aliquot)
+  variant_summary.parquet    # one row per case with unfiltered variant summary
   gene_frequency.parquet     # optional: one row per (gene × tissue)
   variant_frequency.parquet  # optional: one row per (variant × tissue)
-  rna_expression.parquet     # optional: one row per (case × gene)
-  mirna_expression.parquet   # optional: one row per (case × miRNA)
-  methylation_beta.parquet   # optional: one row per (case × methylation probe)
-  copy_number_segments.parquet # optional: one row per CNV segment
-  gene_copy_number.parquet   # optional: one row per (case × gene CNV)
-  protein_expression.parquet # optional: one row per (case × RPPA target)
+  rna_expression.parquet     # optional: one row per (sample file × gene)
+  mirna_expression.parquet   # optional: one row per (sample file × miRNA)
+  methylation_beta.parquet   # optional: one row per (sample file × methylation probe)
+  copy_number_segments.parquet # optional: one row per (sample file × CNV segment)
+  gene_copy_number.parquet   # optional: one row per (sample file × gene CNV)
+  protein_expression.parquet # optional: one row per (sample file × RPPA target)
   model_dataset/             # optional: case-aligned training matrices
   cohort.json                # resolved filter + counts + timestamp
   data/<submitter_id>/<data_category>/<file>   # raw downloaded files
@@ -31,8 +32,9 @@ For the Python API: `from tcga_pull import load_cohort`.
 Multiomics recipe outputs all include these provenance columns:
 
 ```
-case_id, submitter_id, file_id, file_name, data_type,
-experimental_strategy, workflow_type
+case_id, submitter_id, project_id,
+sample_id, sample_submitter_id, sample_type, tissue_type,
+file_id, file_name, data_type, experimental_strategy, workflow_type, platform
 ```
 
 Additional columns:
@@ -91,16 +93,30 @@ One row per downloaded file.
 |---|---|---|
 | `file_id` | Utf8 | GDC UUID |
 | `file_name` | Utf8 | original filename |
+| `n_cases` | Int64 | number of GDC cases associated with the file |
+| `cases_json` | Utf8 | lossless JSON for all case/sample associations returned by GDC |
 | `case_id` | Utf8 | the case this file belongs to (null for multi-case files) |
 | `submitter_id` | Utf8 | matches the per-case folder name on disk |
+| `project_id` | Utf8 | GDC project identifier when the file maps to one case |
+| `n_samples` | Int64 | number of samples associated with a single-case file |
+| `samples_json` | Utf8 | lossless JSON for the samples associated with a single-case file |
+| `sample_id` | Utf8 | GDC sample UUID when exactly one sample is associated |
+| `sample_submitter_id` | Utf8 | TCGA-style sample barcode when exactly one sample is associated |
+| `sample_type` | Utf8 | e.g. `Primary Tumor`, `Solid Tissue Normal` |
+| `tissue_type` | Utf8 | GDC tumor/normal tissue label |
 | `data_type` | Utf8 | e.g. `Masked Somatic Mutation` |
 | `data_format` | Utf8 | e.g. `MAF`, `VCF`, `TSV` |
 | `experimental_strategy` | Utf8 | e.g. `WXS`, `RNA-Seq` |
 | `workflow_type` | Utf8 | analysis workflow name |
+| `platform` | Utf8 | assay/sequencing platform reported by GDC |
 | `md5sum` | Utf8 | from GDC |
 | `file_size` | Int64 | bytes |
 | `local_path` | Utf8 | absolute path on disk after `restructure()`; null if file was routed to `_multi/` |
 | `status` | Utf8 | `ok`, `missing` (rare; failed restructure) |
+
+Scalar case and sample columns are populated only for unambiguous associations.
+Use `cases_json` or `samples_json` when `n_cases` or `n_samples` is greater than
+one; tcga-pull does not choose among associated samples.
 
 ---
 
@@ -137,7 +153,25 @@ mutation burden (counted on primary aliquot only):
 
 Burden columns count the **primary tumor aliquot only**, so a case with three
 sequenced aliquots is still one row with one burden total. Use `n_variants_coding`
-as the canonical "TMB-like" count.
+as the canonical "TMB-like" count. These values come from
+`variant_summary.parquet`, so a gene allowlist on `variants.parquet` does not
+change canonical aliquot metadata or whole-cohort burden.
+
+---
+
+## `variant_summary.parquet`
+
+One row per case represented in the unfiltered MAF input. This compact artifact
+is written with `variants.parquet` before any gene allowlist is applied and is
+the variant-derived input to `samples.parquet`. It keeps older cohorts backward
+compatible while preventing locus filters from changing canonical sample data.
+
+```
+submitter_id,
+primary_tumor_barcode, primary_normal_barcode, normal_source,
+n_tumor_aliquots,
+n_variants_total, n_variants_coding, n_variants_high_impact
+```
 
 ---
 
@@ -323,6 +357,21 @@ artifact. `cases` is the exact deterministic subset applied by
   "n_files": <int>,
   "n_cases": <int>,
   "total_size": <bytes>,
+  "recipes": {                          // present when recipes are configured
+    "requested": ["variants", "multiomics"],
+    "options": {                        // effective values used for processing
+      "variants": {"genes": ["PIK3CA", "TP53"]}
+    },
+    "inputs": {                         // file-backed panels only
+      "variants": {
+        "genes_file": {
+          "source": "<resolved panel path>",
+          "sha256": "<panel digest>",
+          "n_values": 2
+        }
+      }
+    }
+  },
   "case_set": {                         // present only with --case-set
     "source": "<resolved artifact path>",
     "sha256": "<artifact digest>",
@@ -341,6 +390,9 @@ The `filter` value is the exact JSON sent to the GDC `/files` endpoint, so this
 file is enough to re-pull the same cohort (idempotent up to GDC data releases).
 For shared selections, `case_set` identifies the reusable JSON artifact and
 records its digest so downstream cohorts can prove they used the same case set.
+The `recipes` block records the effective recipe options. File-backed locus
+panels are read once before processing; their values are folded into `options`,
+while `inputs` records the resolved source, digest, and number of file values.
 
 ---
 

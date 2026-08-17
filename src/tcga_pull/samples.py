@@ -84,6 +84,8 @@ OUTPUT_COLUMN_ORDER: list[str] = [
     "n_variants_high_impact",
 ]
 
+VARIANT_SUMMARY_FILE = "variant_summary.parquet"
+
 
 def _project_to_program(project_id: str | None) -> str | None:
     """TCGA-BRCA → TCGA, CGCI-BLGSP → CGCI, BEATAML1.0-COHORT → BEATAML1.0."""
@@ -154,9 +156,19 @@ def _per_case_burden(variants: pd.DataFrame) -> pd.DataFrame:
     return burden_df
 
 
+def build_variant_summary(variants: pd.DataFrame) -> pd.DataFrame:
+    """Canonical per-case aliquot structure and burden from unfiltered variants."""
+    pair_structure = _per_case_pair_structure(variants)
+    burden = _per_case_burden(variants)
+    summary: pd.DataFrame = pair_structure.merge(burden, on="submitter_id", how="outer")
+    ordered: pd.DataFrame = summary.sort_values("submitter_id").reset_index(drop=True)
+    return ordered
+
+
 def build_samples_from_frames(
     clinical: pd.DataFrame,
     variants: pd.DataFrame,
+    variant_summary: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Pure transformation: clinical + variants → samples table.
 
@@ -191,12 +203,10 @@ def build_samples_from_frames(
     clin["oncotree_main_type"] = [n.main_type if n else None for n in onco_nodes]
     clin["oncotree_tissue"] = [n.tissue if n else None for n in onco_nodes]
 
-    # Join variant-derived aggregates
-    pair_structure = _per_case_pair_structure(variants)
-    burden = _per_case_burden(variants)
-    samples = clin.merge(pair_structure, on="submitter_id", how="left").merge(
-        burden, on="submitter_id", how="left"
-    )
+    # Prefer the unfiltered summary emitted by the variants recipe. Falling
+    # back to variants.parquet keeps older cohorts compatible.
+    summary = variant_summary if variant_summary is not None else build_variant_summary(variants)
+    samples = clin.merge(summary, on="submitter_id", how="left")
 
     # Fill burden zeros for cases without matched variants
     for col in ("n_variants_total", "n_variants_coding", "n_variants_high_impact"):
@@ -215,6 +225,7 @@ def write_samples(cohort_dir: Path) -> Path:
     cohort_dir = Path(cohort_dir)
     clin_path = cohort_dir / "clinical.parquet"
     variants_path = cohort_dir / "variants.parquet"
+    summary_path = cohort_dir / VARIANT_SUMMARY_FILE
     if not clin_path.exists():
         raise FileNotFoundError(f"missing {clin_path} — run `tcga-pull pull` first")
     if not variants_path.exists():
@@ -223,7 +234,8 @@ def write_samples(cohort_dir: Path) -> Path:
         )
     clinical = pd.read_parquet(clin_path)
     variants = pd.read_parquet(variants_path)
-    samples = build_samples_from_frames(clinical, variants)
+    variant_summary = pd.read_parquet(summary_path) if summary_path.exists() else None
+    samples = build_samples_from_frames(clinical, variants, variant_summary)
     out = cohort_dir / "samples.parquet"
     samples.to_parquet(out, index=False)
     return out

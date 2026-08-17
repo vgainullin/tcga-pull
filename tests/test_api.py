@@ -30,6 +30,9 @@ def _make_cohort_dir(
         json.dumps({"name": "fixture", "n_files": 1, "filter": {"op": "and"}})
     )
     if with_optional:
+        pl.DataFrame({"submitter_id": ["s1"], "n_variants_total": [3]}).write_parquet(
+            cohort / "variant_summary.parquet"
+        )
         pl.DataFrame({"hugo_symbol": ["TP53"], "lineage": ["breast"]}).write_parquet(
             cohort / "gene_frequency.parquet"
         )
@@ -102,6 +105,7 @@ def test_cohort_required_frame_raises_when_missing(tmp_path: Path):
 def test_cohort_optional_frames_return_none_when_missing(tmp_path: Path):
     cohort = load_cohort(_make_cohort_dir(tmp_path, with_optional=False))
     assert cohort.gene_frequency is None
+    assert cohort.variant_summary is None
     assert cohort.variant_frequency is None
     assert cohort.rna_expression is None
     assert cohort.protein_expression is None
@@ -111,6 +115,8 @@ def test_cohort_optional_frames_return_none_when_missing(tmp_path: Path):
 def test_cohort_optional_frames_load_when_present(tmp_path: Path):
     cohort = load_cohort(_make_cohort_dir(tmp_path, with_optional=True))
     assert cohort.gene_frequency is not None
+    assert cohort.variant_summary is not None
+    assert len(cohort.variant_summary) == 1
     assert len(cohort.gene_frequency) == 1
     assert cohort.variant_frequency is not None
     assert cohort.rna_expression is not None

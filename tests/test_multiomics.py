@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -68,10 +69,16 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
                 "file_name": "rna.tsv",
                 "case_id": "case-1",
                 "submitter_id": "TCGA-XX-0001",
+                "project_id": "TCGA-BRCA",
+                "sample_id": "sample-1",
+                "sample_submitter_id": "TCGA-XX-0001-01A",
+                "sample_type": "Primary Tumor",
+                "tissue_type": "Tumor",
                 "data_category": "Transcriptome Profiling",
                 "data_type": "Gene Expression Quantification",
                 "experimental_strategy": "RNA-Seq",
                 "workflow_type": "STAR - Counts",
+                "platform": "Illumina",
                 "local_path": rna_path,
                 "status": "ok",
             },
@@ -153,6 +160,8 @@ def test_write_multiomics_outputs_typed_parquets(tmp_path: Path):
     assert rna.height == 1
     assert rna.row(0, named=True)["gene_name"] == "TP53"
     assert rna.row(0, named=True)["unstranded"] == 42
+    assert rna.row(0, named=True)["sample_submitter_id"] == "TCGA-XX-0001-01A"
+    assert rna.row(0, named=True)["sample_type"] == "Primary Tumor"
 
     mirna = pl.read_parquet(cohort / "mirna_expression.parquet")
     assert mirna.row(0, named=True)["mirna_id"] == "hsa-let-7a-1"
@@ -236,7 +245,8 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     rna_path = _write(
         data / "transcriptome_profiling" / "rna.tsv",
         "gene_id\tgene_name\tgene_type\tunstranded\tstranded_first\n"
-        "ENSG00000141510.18\tTP53\tprotein_coding\t42\t40\n",
+        "ENSG00000141510.18\tTP53\tprotein_coding\t42\t40\n"
+        "ENSG00000012048.24\tBRCA1\tprotein_coding\t10\t8\n",
     )
     methylation_path = _write(
         data / "dna_methylation" / "meth.tsv",
@@ -309,7 +319,10 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     outputs = write_multiomics(
         cohort,
         recipe_options={
-            "rna_expression": {"columns": ["gene_id", "gene_name", "unstranded"]},
+            "rna_expression": {
+                "columns": ["gene_id", "gene_name", "unstranded"],
+                "genes": ["TP53"],
+            },
             "methylation": {"probes": ["cg00000029"]},
             "copy_number": {"outputs": ["segments"]},
         },
@@ -319,14 +332,22 @@ def test_write_multiomics_honors_recipe_options_in_standard_mode(tmp_path: Path)
     assert not (cohort / "gene_copy_number.parquet").exists()
 
     rna = pl.read_parquet(cohort / "rna_expression.parquet")
+    assert rna.height == 1
+    assert rna["gene_name"].to_list() == ["TP53"]
     assert rna.columns == [
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
         "gene_id",
         "gene_name",
         "unstranded",
@@ -382,11 +403,17 @@ def test_write_multiomics_parts_finalizes_directory_parquet(tmp_path: Path):
     assert df.columns == [
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
         "gene_id",
         "gene_name",
         "unstranded",
@@ -492,9 +519,13 @@ def test_incremental_pipeline_processes_and_deletes_handled_raw(tmp_path: Path, 
                 "gene_id\tgene_name\tgene_type\tunstranded\n"
                 "ENSG00000141510.18\tTP53\tprotein_coding\t42\n"
             )
+        # The pipeline must use the panel snapshot resolved before downloading.
+        panel_path.write_text("BRCA1\n")
 
     monkeypatch.setattr("tcga_pull.pipeline.bulk_download_via_api", fake_bulk)
 
+    panel_path = tmp_path / "rna_genes.txt"
+    panel_path.write_text("TP53\n")
     spec = CohortSpec(
         name="incremental",
         out_dir=tmp_path,
@@ -505,6 +536,7 @@ def test_incremental_pipeline_processes_and_deletes_handled_raw(tmp_path: Path, 
             batch_size=1,
             delete_raw_after_processing=True,
         ),
+        recipe_options={"rna_expression": {"genes_file": str(panel_path)}},
     )
     import io
 
@@ -521,6 +553,12 @@ def test_incremental_pipeline_processes_and_deletes_handled_raw(tmp_path: Path, 
     rna = pl.read_parquet(cohort / "rna_expression.parquet")
     assert rna.height == 1
     assert rna.row(0, named=True)["gene_name"] == "TP53"
+    provenance = json.loads((cohort / "cohort.json").read_text())
+    assert provenance["recipes"]["requested"] == ["multiomics"]
+    assert provenance["recipes"]["options"]["rna_expression"] == {"genes": ["TP53"]}
+    panel_input = provenance["recipes"]["inputs"]["rna_expression"]["genes_file"]
+    assert panel_input["source"] == str(panel_path.resolve())
+    assert len(panel_input["sha256"]) == 64
 
 
 def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, monkeypatch):
@@ -567,12 +605,19 @@ def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, mon
 
     monkeypatch.setattr("tcga_pull.pipeline.bulk_download_via_api", fake_bulk)
 
+    panel_path = tmp_path / "rna_genes.txt"
+    panel_path.write_text("TP53\n")
     spec = CohortSpec(
         name="standard_options",
         out_dir=tmp_path,
         filters={"project": "TCGA-CHOL"},
         recipes=["rna_expression"],
-        recipe_options={"rna_expression": {"columns": ["gene_id", "gene_name", "unstranded"]}},
+        recipe_options={
+            "rna_expression": {
+                "columns": ["gene_id", "gene_name", "unstranded"],
+                "genes_file": str(panel_path),
+            }
+        },
     )
     import io
 
@@ -582,12 +627,24 @@ def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, mon
     assert rna.columns == [
         "case_id",
         "submitter_id",
+        "project_id",
+        "sample_id",
+        "sample_submitter_id",
+        "sample_type",
+        "tissue_type",
         "file_id",
         "file_name",
         "data_type",
         "experimental_strategy",
         "workflow_type",
+        "platform",
         "gene_id",
         "gene_name",
         "unstranded",
     ]
+    provenance = json.loads((tmp_path / "standard_options" / "cohort.json").read_text())
+    assert provenance["recipes"]["requested"] == ["rna_expression"]
+    assert provenance["recipes"]["options"]["rna_expression"] == {
+        "columns": ["gene_id", "gene_name", "unstranded"],
+        "genes": ["TP53"],
+    }

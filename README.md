@@ -49,6 +49,7 @@ Output goes to `./cohorts/brca_snv/`:
 clinical.parquet            manifest.parquet            cohort.json
 clinical_raw.jsonl          manifest.tsv                data/<patient>/<data_category>/<file>
 variants.parquet            samples.parquet
+variant_summary.parquet
 gene_frequency.parquet      variant_frequency.parquet
 ```
 
@@ -115,13 +116,24 @@ Recipe-specific reduction options can shrink processed outputs further:
 
 ```yaml
 recipe_options:
+  variants:
+    genes_file: ./panels/cancer_genes.txt
   rna_expression:
     columns: [gene_id, gene_name, gene_type, unstranded]
+    genes_file: ./panels/cancer_genes.txt
   methylation:
     probes_file: ./probe_panels/immune_probes.txt
   copy_number:
     outputs: [segments]  # choose from: segments, gene
 ```
+
+RNA gene allowlists match gene symbols, versioned Ensembl IDs, or unversioned
+Ensembl IDs. Variant allowlists match `Hugo_Symbol`. These options reduce rows
+during processing; GDC still transfers complete per-sample source files.
+`variant_summary.parquet` retains unfiltered per-case aliquot structure and
+burden, so `samples.parquet` keeps its canonical whole-cohort semantics.
+File-backed panels are resolved once before processing. Their effective sorted
+values, resolved source path, and SHA-256 digest are recorded in `cohort.json`.
 
 The same mode can be enabled from flags for ad hoc pulls:
 
@@ -129,11 +141,24 @@ The same mode can be enabled from flags for ad hoc pulls:
 tcga-pull pull cohort.yaml --incremental --processing-batch-size 200 --delete-raw-after-processing
 ```
 
+Normalized omics rows retain their GDC file, case, sample, sample type, tissue
+type, project, workflow, and platform identifiers. `manifest.parquet` also keeps
+the complete case/sample associations as JSON when a file maps ambiguously.
+This allows downstream tools to construct sample-level tumor/normal cohorts
+without inferring sample identity from filenames or patient-level joins.
+
 If the raw files are already downloaded, build just the non-SNV omics parquets
 with:
 
 ```sh
 tcga-pull multiomics ./cohorts/pancancer_multiomics
+```
+
+Apply a variant panel to an existing download with the same cohort config:
+
+```sh
+tcga-pull variants ./cohorts/pancancer_multiomics --config cohort.yaml
+tcga-pull samples ./cohorts/pancancer_multiomics
 ```
 
 To export case-aligned matrices for model training:
@@ -151,7 +176,8 @@ tcga-pull dataset ./cohorts/pancancer_multiomics \
 This writes `model_dataset/` under the cohort with `samples.parquet`,
 `feature_index.parquet`, one matrix parquet per modality, and a JSON manifest.
 For strict tumor-only model inputs, include `sample_type: [Primary Tumor]` in
-the cohort filter before download.
+the cohort filter before download. Use `platform` when selections must use the
+same assay, for example `platform: Illumina Human Methylation 450`.
 
 ## Python API
 
@@ -162,6 +188,7 @@ cohort = load_cohort("./cohorts/brca_snv")
 cohort.clinical
 cohort.manifest
 cohort.variants
+cohort.variant_summary
 cohort.samples
 cohort.gene_frequency
 cohort.rna_expression
@@ -177,14 +204,14 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 
 | recipe | output | rows |
 |---|---|---|
-| `variants` | `variants.parquet` | one per (variant × tumor aliquot) |
+| `variants` | `variants.parquet`, `variant_summary.parquet` | filtered variant rows plus unfiltered per-case summary |
 | `samples` | `samples.parquet` | one per case (clinical + tissue + burden) |
 | `frequency` | `gene_frequency.parquet`, `variant_frequency.parquet` | per (gene or variant, tissue) |
-| `rna_expression` | `rna_expression.parquet` | one per (case × gene) |
-| `mirna_expression` | `mirna_expression.parquet` | one per (case × miRNA) |
-| `methylation` | `methylation_beta.parquet` | one per (case × methylation probe) |
-| `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | segment-level and gene-level CNV |
-| `protein_expression` | `protein_expression.parquet` | one per (case × RPPA target) |
+| `rna_expression` | `rna_expression.parquet` | one per (sample file × gene) |
+| `mirna_expression` | `mirna_expression.parquet` | one per (sample file × miRNA) |
+| `methylation` | `methylation_beta.parquet` | one per (sample file × methylation probe) |
+| `copy_number` | `copy_number_segments.parquet`, `gene_copy_number.parquet` | sample-file segment-level and gene-level CNV |
+| `protein_expression` | `protein_expression.parquet` | one per (sample file × RPPA target) |
 | `multiomics` | all non-SNV omics parquets above | batch processor |
 | `model_dataset` | `model_dataset/*.parquet`, `model_dataset/manifest.json` | case-aligned training matrices |
 

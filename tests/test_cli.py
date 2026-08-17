@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import polars as pl
 from typer.testing import CliRunner
 
 from tcga_pull import cli, services
@@ -133,6 +134,36 @@ def test_dataset_command_passes_options_to_service(tmp_path: Path, monkeypatch):
     assert captured["kwargs"]["modalities"] == ["snv"]
     assert captured["kwargs"]["min_class_count"] == 1
     assert captured["kwargs"]["seed"] == 42
+
+
+def test_variants_command_passes_config_options_to_service(tmp_path: Path, monkeypatch):
+    cohort = tmp_path / "cohort"
+    cohort.mkdir()
+    yaml_path = tmp_path / "cohort.yaml"
+    yaml_path.write_text(
+        "name: c\nfilters: {project: TCGA-BRCA}\nrecipe_options:\n  variants:\n    genes: [TP53]\n"
+    )
+    out = cohort / "variants.parquet"
+    pl.DataFrame({"hugo_symbol": ["TP53"]}).write_parquet(out)
+    captured: dict[str, Any] = {}
+
+    def fake_write_variants_recipe(*args: Any, **kwargs: Any):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return services.RecipeOutput(path=out, engine=kwargs["engine"])
+
+    monkeypatch.setattr(services, "write_variants_recipe", fake_write_variants_recipe)
+
+    result = runner.invoke(
+        cli.app,
+        ["variants", str(cohort), "--config", str(yaml_path)],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"] == (cohort,)
+    assert captured["kwargs"]["engine"] == "polars"
+    assert captured["kwargs"]["recipe_options"] == {"variants": {"genes": ["TP53"]}}
 
 
 def test_coverage_command_writes_matrix_outputs(tmp_path: Path, monkeypatch):

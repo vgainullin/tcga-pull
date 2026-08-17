@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from tcga_pull.download import primary_case, slugify
+from tcga_pull.download import _case_sample_metadata, primary_case, slugify
 from tcga_pull.gdc import f_and, f_in, for_cases_endpoint
 from tcga_pull.layout import flatten_case, write_clinical, write_manifest
 
@@ -101,6 +101,71 @@ def test_primary_case_multi_returns_none():
 
 def test_primary_case_no_cases():
     assert primary_case({"cases": []}) is None
+
+
+def test_case_sample_metadata_preserves_unambiguous_sample():
+    hit = {
+        "cases": [
+            {
+                "case_id": "c1",
+                "submitter_id": "TCGA-XX-0001",
+                "project": {"project_id": "TCGA-BRCA"},
+                "samples": [
+                    {
+                        "sample_id": "s1",
+                        "submitter_id": "TCGA-XX-0001-01A",
+                        "sample_type": "Primary Tumor",
+                        "tissue_type": "Tumor",
+                    }
+                ],
+            }
+        ]
+    }
+
+    row = _case_sample_metadata(hit)
+
+    assert row["n_cases"] == 1
+    assert row["case_id"] == "c1"
+    assert row["project_id"] == "TCGA-BRCA"
+    assert row["n_samples"] == 1
+    assert row["sample_id"] == "s1"
+    assert row["sample_submitter_id"] == "TCGA-XX-0001-01A"
+    assert row["sample_type"] == "Primary Tumor"
+    assert '"sample_id": "s1"' in row["cases_json"]
+    assert '"sample_id": "s1"' in row["samples_json"]
+
+
+def test_case_sample_metadata_keeps_ambiguous_samples_losslessly():
+    hit = {
+        "cases": [
+            {
+                "case_id": "c1",
+                "samples": [
+                    {"sample_id": "tumor", "sample_type": "Primary Tumor"},
+                    {"sample_id": "normal", "sample_type": "Solid Tissue Normal"},
+                ],
+            }
+        ]
+    }
+
+    row = _case_sample_metadata(hit)
+
+    assert row["n_samples"] == 2
+    assert row["sample_id"] is None
+    assert row["sample_type"] is None
+    assert '"sample_id": "tumor"' in row["samples_json"]
+    assert '"sample_id": "normal"' in row["samples_json"]
+
+
+def test_case_sample_metadata_keeps_multi_case_association_losslessly():
+    hit = {"cases": [{"case_id": "c1"}, {"case_id": "c2"}]}
+
+    row = _case_sample_metadata(hit)
+
+    assert row["n_cases"] == 2
+    assert row["case_id"] is None
+    assert '"case_id": "c1"' in row["cases_json"]
+    assert '"case_id": "c2"' in row["cases_json"]
 
 
 def test_flatten_case():

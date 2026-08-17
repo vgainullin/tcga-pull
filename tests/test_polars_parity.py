@@ -100,6 +100,7 @@ def _build_fixture_cohort(tmp_path: Path) -> Path:
             ),
             _maf_row(
                 pos=300,
+                hugo="GENE2",
                 case="c1",
                 tumor="TCGA-AA-AAAA-01A-11D-0000-09",
                 normal="TCGA-AA-AAAA-10A-01D-0000-09",
@@ -223,16 +224,95 @@ def test_variants_parity(tmp_path: Path):
     # Pandas pipeline
     pd_path = variants_pandas.write_variants(cohort)
     pd_path = pd_path.rename(pd_path.with_suffix(".pandas.parquet"))
+    pd_summary = (cohort / "variant_summary.parquet").rename(
+        cohort / "variant_summary.pandas.parquet"
+    )
 
     # Polars pipeline (overwrites variants.parquet)
     pl_out = variants_polars.write_variants(cohort)
     pl_path = pl_out.rename(pl_out.with_suffix(".polars.parquet"))
+    pl_summary = (cohort / "variant_summary.parquet").rename(
+        cohort / "variant_summary.polars.parquet"
+    )
 
     _assert_frames_match(
         pd_path,
         pl_path,
         sort_cols=["submitter_id", "tumor_barcode", "chrom", "pos"],
     )
+    _assert_frames_match(pd_summary, pl_summary, sort_cols=["submitter_id"])
+
+
+def test_variant_gene_allowlist_matches_between_engines(tmp_path: Path):
+    cohort = _build_fixture_cohort(tmp_path)
+    mafs = sorted(cohort.glob("data/*/simple_nucleotide_variation/*.maf.gz"))
+
+    pandas = variants_pandas.aggregate_mafs(mafs, genes={"GENE1"})
+    polars = variants_polars.aggregate_mafs(mafs, genes={"GENE1"})
+
+    assert len(pandas) == 4
+    assert set(pandas["hugo_symbol"]) == {"GENE1"}
+    assert len(polars) == 4
+    assert set(polars["hugo_symbol"].to_list()) == {"GENE1"}
+    assert variants_pandas.aggregate_mafs(mafs, genes={"NOT_PRESENT"}).empty
+    assert variants_polars.aggregate_mafs(mafs, genes={"NOT_PRESENT"}).is_empty()
+
+    out = variants_polars.write_variants(cohort, {"variants": {"genes": ["GENE2"]}})
+    selected = pl.read_parquet(out)
+    assert selected.height == 1
+    assert selected["hugo_symbol"].to_list() == ["GENE2"]
+
+
+def test_variant_gene_allowlist_preserves_full_cohort_primary_aliquot(tmp_path: Path):
+    cohort = tmp_path / "primary-before-filter"
+    data = cohort / "data" / "TCGA-AA-AAAA" / "simple_nucleotide_variation"
+    _write_maf(
+        data / "shallow-panel.maf.gz",
+        [
+            _maf_row(
+                hugo="PANEL",
+                case="c1",
+                tumor="TCGA-AA-AAAA-01A-11D-0000-09",
+                t_depth=10,
+            )
+        ],
+    )
+    _write_maf(
+        data / "deep-off-panel.maf.gz",
+        [
+            _maf_row(
+                hugo="OFF_PANEL",
+                case="c1",
+                tumor="TCGA-AA-AAAA-01B-11D-0000-09",
+                t_depth=100,
+            )
+        ],
+    )
+
+    pandas = variants_pandas.aggregate_cohort(cohort, {"variants": {"genes": ["PANEL"]}})
+    polars = variants_polars.aggregate_cohort(cohort, {"variants": {"genes": ["PANEL"]}})
+
+    assert pandas["primary_aliquot"].to_list() == [False]
+    assert polars["primary_aliquot"].to_list() == [False]
+
+
+def test_variant_gene_allowlist_zero_hits_keeps_samples_pipeline_valid(tmp_path: Path):
+    cohort = _build_fixture_cohort(tmp_path)
+
+    variants_path = variants_polars.write_variants(cohort, {"variants": {"genes": ["NOT_PRESENT"]}})
+    samples_path = samples_polars.write_samples(cohort)
+
+    assert pl.read_parquet(variants_path).is_empty()
+    summary = pl.read_parquet(cohort / "variant_summary.parquet")
+    assert summary["n_variants_total"].to_list() == [3, 1]
+    samples = pl.read_parquet(samples_path)
+    assert samples.height == 2
+    assert samples["n_variants_total"].to_list() == [3, 1]
+    assert samples["n_tumor_aliquots"].to_list() == [1, 2]
+    assert samples["primary_tumor_barcode"].to_list() == [
+        "TCGA-AA-AAAA-01A-11D-0000-09",
+        "TCGA-BB-BBBB-01B-04D-0000-09",
+    ]
 
 
 def test_samples_parity(tmp_path: Path):
