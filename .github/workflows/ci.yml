@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -48,8 +51,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # Hits the live GDC; runs after lint+test pass so we don't burn GDC traffic
-    # on commits that fail the cheap checks.
+    timeout-minutes: 5
+    # Fast metadata-only GDC checks remain part of every PR gate.
     needs: [lint, test]
     steps:
       - uses: actions/checkout@v4
@@ -57,5 +60,20 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --extra agent
-      - name: pytest (network + download against live GDC)
-        run: uv run pytest -m "network or download" -v
+      - name: pytest (metadata against live GDC)
+        run: uv run pytest -m network -v
+
+  download-e2e:
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Full live downloads are valuable but too slow and externally variable for PR gating.
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --extra agent
+      - name: pytest (downloads against live GDC)
+        run: uv run pytest -m download -v

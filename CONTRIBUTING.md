@@ -18,8 +18,8 @@ uv run ruff check
 uv run ruff format --check
 uv run mypy
 uv run pytest                              # offline tests only (default)
-uv run pytest -m network                   # + live GDC API queries
-uv run pytest -m "network or download"     # + live download (~30 s, ~3 MB)
+uv run pytest -m network                   # live GDC API queries
+uv run pytest -m download                  # live download pipelines
 ```
 
 `pre-commit` runs `ruff check --fix` and `ruff format` on staged files; CI
@@ -31,10 +31,12 @@ will reject anything that disagrees with what `ruff format` produces.
   in CI on every push across the 3.10–3.13 matrix. Cover pure helpers,
   schema parity (pandas vs polars), and synthetic-cohort recipe math.
 - **Network tests** (`@pytest.mark.network`) — hit the live GDC API for
-  metadata. Fast (<5 s), no downloads. Run by CI's `e2e` job.
+  metadata. Fast (<5 s), no downloads. Run by CI's required `e2e` PR job with
+  a five-minute job timeout.
 - **Download tests** (`@pytest.mark.download`) — pull a tiny live cohort
   through the full pull → recipes pipeline and assert artefacts.
-  ~30 s wall, ~3 MB on the wire. Also run by CI's `e2e` job.
+  Because GDC transfer latency is externally variable, CI runs these after
+  pushes to `main`, nightly, and on manual dispatch, with a 15-minute timeout.
 
 Mark tests that need network or downloads:
 
