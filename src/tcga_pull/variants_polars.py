@@ -155,7 +155,7 @@ def aggregate_cohort(
     if "variants" in options and isinstance(options["variants"], dict):
         options = options["variants"]
     genes = allowed_values(options, "genes", "genes_file")
-    variants = aggregate_mafs(mafs, genes=genes)
+    variants = aggregate_mafs(mafs)
 
     # Join clinical (project_id, submitter_id, primary_diagnosis)
     clin_path = cohort_dir / "clinical.parquet"
@@ -172,6 +172,8 @@ def aggregate_cohort(
         variants = variants.join(clin, on="case_id", how="left")
 
     variants = _mark_primary_aliquot(variants)
+    if genes is not None:
+        variants = variants.filter(pl.col("hugo_symbol").is_in(sorted(genes)))
 
     # Final column order — keep only those that exist
     front = [c for c in OUTPUT_COLUMN_ORDER if c in variants.columns]

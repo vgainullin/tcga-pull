@@ -256,6 +256,39 @@ def test_variant_gene_allowlist_matches_between_engines(tmp_path: Path):
     assert selected["hugo_symbol"].to_list() == ["GENE2"]
 
 
+def test_variant_gene_allowlist_preserves_full_cohort_primary_aliquot(tmp_path: Path):
+    cohort = tmp_path / "primary-before-filter"
+    data = cohort / "data" / "TCGA-AA-AAAA" / "simple_nucleotide_variation"
+    _write_maf(
+        data / "shallow-panel.maf.gz",
+        [
+            _maf_row(
+                hugo="PANEL",
+                case="c1",
+                tumor="TCGA-AA-AAAA-01A-11D-0000-09",
+                t_depth=10,
+            )
+        ],
+    )
+    _write_maf(
+        data / "deep-off-panel.maf.gz",
+        [
+            _maf_row(
+                hugo="OFF_PANEL",
+                case="c1",
+                tumor="TCGA-AA-AAAA-01B-11D-0000-09",
+                t_depth=100,
+            )
+        ],
+    )
+
+    pandas = variants_pandas.aggregate_cohort(cohort, {"variants": {"genes": ["PANEL"]}})
+    polars = variants_polars.aggregate_cohort(cohort, {"variants": {"genes": ["PANEL"]}})
+
+    assert pandas["primary_aliquot"].to_list() == [False]
+    assert polars["primary_aliquot"].to_list() == [False]
+
+
 def test_samples_parity(tmp_path: Path):
     cohort = _build_fixture_cohort(tmp_path)
 
