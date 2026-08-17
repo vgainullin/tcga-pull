@@ -94,16 +94,23 @@ row when both the configured sample identity and entity namespace/identifier
 match. Nulls remain null; the integration layer does not impute absent
 measurements.
 
-`mappings.parquet` records each observed direct or external feature mapping:
+`mappings.parquet` records each observed direct, built-in annotation, or
+external feature mapping:
 
 ```
-modality, source_feature_id, entity_type, entity_id, mapping_type
+modality, source_feature_id, source_platform, entity_type, entity_id,
+mapping_type, annotation_release, annotation_url, annotation_sha256,
+genome_build, gene_region
 ```
 
 `manifest.json` records effective modality specifications, aggregation and
 normalization rules, counts, skipped default modalities, and output paths.
-External mapping file paths, SHA-256 digests, and sizes are also persisted in
-`cohort.json` recipe provenance.
+For methylation, the retained GDC platform selects the pinned HM27, HM450, EPIC,
+or EPIC v2 hg38/GENCODE v41 annotation automatically. Source URLs, release,
+SHA-256, normalized mapping path, regions, and counts are persisted in the
+manifest and `cohort.json`; the verified source and analysis-ready mapping live
+under `annotations/`. External mapping file paths, SHA-256 digests, and sizes
+are persisted using the same provenance contract.
 
 ---
 

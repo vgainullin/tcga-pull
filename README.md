@@ -161,35 +161,37 @@ tcga-pull integrate ./cohorts/pancancer_multiomics --config cohort.yaml
 ```
 
 Direct gene-level sources (SNV, RNA, gene CNV, and RPPA) share the
-`gene_symbol` namespace. Methylation remains in the `cpg_probe` namespace
-unless an explicit, versioned probe annotation is supplied:
+`gene_symbol` namespace. Methylation is mapped into that namespace
+automatically using the `platform` retained from GDC. tcga-pull supports HM27,
+HM450, EPIC, and EPIC v2 and downloads the matching hg38/GENCODE v41
+InfiniumAnnotation v8.1 table into the cohort's `annotations/` directory. The
+source and normalized mapping are checksum-verified and recorded in both the
+integration manifest and `cohort.json`. The annotation source follows the
+[GDC improved probe annotation guidance](https://gdc.cancer.gov/content/improved-dna-methylation-array-probe-annotation)
+and is pinned by content hash because its upstream download URL is mutable.
+
+By default, methylation uses probes within 1,500 bases of a transcription start
+site and averages their beta values per gene. Include annotated gene-body probes
+when required:
 
 ```yaml
 recipe_options:
   integrate:
     modalities:
-      snv: {}
-      rna_expression: {}
-      gene_copy_number: {}
-      protein_expression: {}
       methylation_beta:
-        entity_column: gene_symbol
-        entity_type: gene_symbol
-        normalize: uppercase
-        aggregation: mean
-        mapping:
-          file: /data/annotations/illumina-450k.tsv
-          source_column: IlmnID
-          entity_column: UCSC_RefGene_Name
-          separator: ";"
-          filters:
-            UCSC_RefGene_Group: [TSS1500, TSS200, 5'UTR, 1stExon]
+        annotation_regions: [promoter, body]
 ```
 
-The mapping file may be TSV, CSV, or parquet. One-to-many mappings are expanded;
-many source features mapping to the same sample/entity are combined using the
-declared aggregation. Mapping paths and SHA-256 digests are recorded in
-`cohort.json`. Custom modalities use the same contract by declaring
+Each methylation join identifier must resolve to one array platform; filter the
+cohort by `platform` or use an exact sample join if a case contains multiple
+arrays. Unknown or missing platforms fail with an actionable error rather than
+dropping probes.
+
+For custom assays or annotations, `mapping.file` remains available as an
+explicit override. Mapping tables may be TSV, CSV, or parquet. One-to-many
+mappings are expanded; many source features mapping to the same sample/entity
+are combined using the declared aggregation. Custom modalities use the same
+general contract by declaring
 `source_file`, `feature_column`, `entity_column`, `entity_type`, `value_column`,
 and `aggregation`. The default join is case-level (`submitter_id`). Set
 `integrate.join_on` to `sample_id` or `sample_submitter_id` when exact assay

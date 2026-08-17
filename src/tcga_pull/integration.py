@@ -15,6 +15,8 @@ from typing import Any
 
 import polars as pl
 
+from .annotations import resolve_methylation_annotations
+
 
 @dataclass(frozen=True)
 class IntegrationOutputs:
@@ -37,6 +39,8 @@ class ModalitySpec:
     normalize: str = "none"
     value_kind: str = "numeric"
     mapping: dict[str, Any] | None = None
+    annotation: str | None = None
+    annotation_regions: tuple[str, ...] = ("promoter",)
 
 
 BUILTIN_MODALITIES: dict[str, dict[str, Any]] = {
@@ -61,10 +65,13 @@ BUILTIN_MODALITIES: dict[str, dict[str, Any]] = {
     "methylation_beta": {
         "source_file": "methylation_beta.parquet",
         "feature_column": "probe_id",
-        "entity_column": "probe_id",
-        "entity_type": "cpg_probe",
+        "entity_column": "gene_symbol",
+        "entity_type": "gene_symbol",
         "value_column": "beta_value",
         "aggregation": "mean",
+        "normalize": "uppercase",
+        "annotation": "auto",
+        "annotation_regions": ["promoter"],
     },
     "gene_copy_number": {
         "source_file": "gene_copy_number.parquet",
@@ -116,8 +123,8 @@ def write_integrated_dataset(
 
     ``recipe_options.integrate.modalities`` may be a list of built-in modality
     names or a mapping of modality names to overrides/custom specifications.
-    External feature mappings are configured per modality with a ``mapping``
-    block and are never inferred.
+    Built-in annotations are resolved by retained source metadata. External
+    feature mappings remain available per modality with a ``mapping`` block.
     """
     cohort_dir = Path(cohort_dir)
     options = _integration_options(recipe_options)
@@ -166,7 +173,7 @@ def write_integrated_dataset(
         conflicts = identity_conflicts["join_id"].sort().to_list()
         raise ValueError(f"join identifiers map to multiple cases: {conflicts[:5]}")
     mappings = (
-        pl.concat(mapping_frames, how="vertical")
+        pl.concat(mapping_frames, how="diagonal_relaxed")
         .unique()
         .sort(["modality", "source_feature_id", "entity_type", "entity_id"])
     )
@@ -204,6 +211,7 @@ def write_integrated_dataset(
         },
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    _record_integration_provenance(cohort_dir, options, modality_manifest)
     return IntegrationOutputs(
         path=target,
         values=values_path,
@@ -278,6 +286,14 @@ def _modality_spec(name: str, overrides: dict[str, Any]) -> ModalitySpec:
         raise ValueError(f"{name}: mapping must be a mapping")
     if mapping is not None and "aggregation" not in overrides:
         raise ValueError(f"{name}: aggregation is required when mapping is configured")
+    annotation = raw.get("annotation")
+    if annotation is not None and annotation != "auto":
+        raise ValueError(f"{name}: annotation must be 'auto' when configured")
+    raw_regions = raw.get("annotation_regions", ["promoter"])
+    if not isinstance(raw_regions, list) or not all(
+        isinstance(value, str) for value in raw_regions
+    ):
+        raise ValueError(f"{name}: annotation_regions must be a list of strings")
     return ModalitySpec(
         name=name,
         source_file=str(raw["source_file"]),
@@ -289,6 +305,12 @@ def _modality_spec(name: str, overrides: dict[str, Any]) -> ModalitySpec:
         normalize=normalize,
         value_kind=value_kind,
         mapping=dict(mapping) if mapping is not None else None,
+        annotation=None
+        if mapping is not None
+        else str(annotation)
+        if annotation is not None
+        else None,
+        annotation_regions=tuple(raw_regions),
     )
 
 
@@ -332,16 +354,24 @@ def _integrate_modality(
         raise FileNotFoundError(f"missing {source_path}")
     source = _read_frame(source_path)
     source = _apply_builtin_filters(source, spec.name)
+    uses_annotation = spec.mapping is None and spec.annotation == "auto"
     required = {"submitter_id", spec.feature_column}
     if join_on != "submitter_id":
         required.update({"case_id", join_on})
     if spec.value_column is not None:
         required.add(spec.value_column)
-    if spec.mapping is None:
+    if spec.mapping is None and not uses_annotation:
         required.add(spec.entity_column)
+    if uses_annotation:
+        required.add("platform")
     missing = sorted(required - set(source.columns))
     if missing:
-        raise ValueError(f"{spec.name}: source is missing columns {missing}")
+        message = f"{spec.name}: source is missing columns {missing}"
+        if uses_annotation and "platform" in missing:
+            raise RuntimeError(
+                f"{message}; rebuild the processed cohort so GDC platform metadata is retained"
+            )
+        raise ValueError(message)
 
     if spec.value_kind == "presence":
         value_expression = pl.lit(1.0)
@@ -362,7 +392,19 @@ def _integrate_modality(
         value_expression.alias("value"),
         *(
             [pl.col(spec.entity_column).cast(pl.Utf8).alias("entity_id")]
-            if spec.mapping is None
+            if spec.mapping is None and not uses_annotation
+            else []
+        ),
+        *(
+            [
+                pl.col("platform")
+                .cast(pl.Utf8)
+                .str.strip_chars()
+                .str.to_lowercase()
+                .str.replace_all(r"\s+", " ")
+                .alias("source_platform_key")
+            ]
+            if uses_annotation
             else []
         ),
     ).filter(
@@ -371,10 +413,45 @@ def _integrate_modality(
         pl.col("source_feature_id").is_not_null(),
     )
 
+    annotation_metadata: list[dict[str, Any]] = []
     if spec.mapping is not None:
         mapping = _mapping_frame(spec)
         selected = selected.join(mapping, on="source_feature_id", how="inner")
         mapping_type = "external"
+    elif uses_annotation:
+        missing_platform = selected.filter(
+            pl.col("source_platform_key").is_null()
+            | (pl.col("source_platform_key").str.len_chars() == 0)
+        )
+        if not missing_platform.is_empty():
+            raise RuntimeError(
+                f"{spec.name}: methylation rows have no GDC platform; rebuild the processed "
+                "cohort so platform metadata is retained"
+            )
+        platform_conflicts = (
+            selected.select("join_id", "source_platform_key")
+            .unique()
+            .group_by("join_id")
+            .len()
+            .filter(pl.col("len") > 1)
+        )
+        if not platform_conflicts.is_empty():
+            identifiers = platform_conflicts["join_id"].sort().to_list()
+            raise RuntimeError(
+                f"{spec.name}: join identifiers contain multiple methylation platforms: "
+                f"{identifiers[:5]}; filter the cohort to one platform or use exact sample joins"
+            )
+        annotation_mapping, annotation_metadata = resolve_methylation_annotations(
+            cohort_dir,
+            selected["source_platform_key"].drop_nulls().unique().to_list(),
+            regions=spec.annotation_regions,
+        )
+        selected = selected.join(
+            annotation_mapping,
+            on=["source_feature_id", "source_platform_key"],
+            how="inner",
+        )
+        mapping_type = "builtin_annotation"
     else:
         mapping_type = "direct"
 
@@ -392,7 +469,11 @@ def _integrate_modality(
         selected = selected.join(sample_index, on=["case_id", "submitter_id"], how="inner")
     if selected.is_empty():
         raise ValueError(f"{spec.name}: no rows matched the cohort samples and entity mapping")
-    observed_mappings = selected.select("source_feature_id", "entity_id").unique()
+    observed_columns = ["source_feature_id", "entity_id"]
+    for column in ("source_platform", "gene_region"):
+        if column in selected.columns:
+            observed_columns.append(column)
+    observed_mappings = selected.select(observed_columns).unique()
 
     grouped = (
         _aggregate_values(selected, spec)
@@ -422,19 +503,48 @@ def _integrate_modality(
             pl.lit(mapping_type).alias("mapping_type"),
         )
         .filter(pl.col("entity_id").is_not_null(), pl.col("entity_id").str.len_chars() > 0)
-        .select(
-            "modality",
-            "source_feature_id",
-            "entity_type",
-            "entity_id",
-            "mapping_type",
-        )
         .unique()
+    )
+    if annotation_metadata:
+        annotation_lookup = pl.DataFrame(
+            [
+                {
+                    "source_platform": item["platform"],
+                    "annotation_release": item["release"],
+                    "annotation_url": item["url"],
+                    "annotation_sha256": item["sha256"],
+                    "genome_build": item["genome_build"],
+                }
+                for item in annotation_metadata
+            ]
+        )
+        mappings = mappings.join(annotation_lookup, on="source_platform", how="left")
+    mapping_columns = [
+        "modality",
+        "source_feature_id",
+        "source_platform",
+        "entity_type",
+        "entity_id",
+        "mapping_type",
+        "annotation_release",
+        "annotation_url",
+        "annotation_sha256",
+        "genome_build",
+        "gene_region",
+    ]
+    mappings = mappings.select(
+        *[
+            pl.col(column)
+            if column in mappings.columns
+            else pl.lit(None, dtype=pl.Utf8).alias(column)
+            for column in mapping_columns
+        ]
     )
     details = {
         **asdict(spec),
         "source_file": str(source_path.resolve()),
         "mapping": _manifest_mapping(spec.mapping),
+        "annotations": annotation_metadata,
         "join_on": join_on,
         "n_cases": grouped["submitter_id"].n_unique(),
         "n_samples": grouped["join_id"].n_unique(),
@@ -606,3 +716,40 @@ def _manifest_mapping(mapping: dict[str, Any] | None) -> dict[str, Any] | None:
     if out.get("file"):
         out["file"] = str(Path(str(out["file"])).expanduser().resolve())
     return out
+
+
+def _record_integration_provenance(
+    cohort_dir: Path,
+    options: dict[str, Any],
+    modalities: dict[str, Any],
+) -> None:
+    import hashlib
+
+    from .layout import update_recipe_provenance
+
+    modality_inputs: dict[str, Any] = {}
+    for name, details in modalities.items():
+        inputs: dict[str, Any] = {}
+        mapping = details.get("mapping")
+        if isinstance(mapping, dict) and mapping.get("file"):
+            mapping_path = Path(mapping["file"])
+            content = mapping_path.read_bytes()
+            inputs["mapping_file"] = {
+                "source": str(mapping_path),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size_bytes": len(content),
+            }
+        annotations = details.get("annotations")
+        if annotations:
+            inputs["annotations"] = annotations
+        if inputs:
+            modality_inputs[name] = inputs
+    recipe_inputs = {"modalities": modality_inputs} if modality_inputs else {}
+    update_recipe_provenance(
+        cohort_dir,
+        {
+            "options": {"integrate": options},
+            "inputs": {"integrate": recipe_inputs},
+        },
+        replace_recipes={"integrate"},
+    )

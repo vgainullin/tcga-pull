@@ -442,11 +442,9 @@ def write_integration_recipe(
     out_dir: Path | None = None,
 ) -> IntegrationOutputs:
     from .integration import write_integrated_dataset
-    from .layout import update_recipe_provenance
 
-    resolved_options, provenance = resolve_recipe_options(recipe_options)
+    resolved_options, _provenance = resolve_recipe_options(recipe_options)
     outputs = write_integrated_dataset(cohort_dir, resolved_options, out_dir=out_dir)
-    update_recipe_provenance(cohort_dir, provenance, replace_recipes={"integrate"})
     return IntegrationOutputs(
         path=outputs.path,
         values=outputs.values,
