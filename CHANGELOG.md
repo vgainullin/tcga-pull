@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gene allowlists for the `variants` and `rna_expression` recipes, complementing
   the existing methylation probe allowlist during standard or incremental processing.
   Variant allowlists are also available through `tcga-pull variants --config`;
-  unfiltered aliquot and burden data remain in `variant_summary.parquet`.
+  unfiltered aliquot and burden data remain in `variant_summary.parquet`. File-backed
+  panels are resolved once and recorded with their effective values and SHA-256.
 - `platform` cohort filtering for assay-compatible selections.
 - `tcga-pull case-set` and `preview` / `pull --case-set` — deterministically
   select one per-project-capped case set from a primary/optional-omics N-way

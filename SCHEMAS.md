@@ -357,6 +357,21 @@ artifact. `cases` is the exact deterministic subset applied by
   "n_files": <int>,
   "n_cases": <int>,
   "total_size": <bytes>,
+  "recipes": {                          // present when recipes are configured
+    "requested": ["variants", "multiomics"],
+    "options": {                        // effective values used for processing
+      "variants": {"genes": ["PIK3CA", "TP53"]}
+    },
+    "inputs": {                         // file-backed panels only
+      "variants": {
+        "genes_file": {
+          "source": "<resolved panel path>",
+          "sha256": "<panel digest>",
+          "n_values": 2
+        }
+      }
+    }
+  },
   "case_set": {                         // present only with --case-set
     "source": "<resolved artifact path>",
     "sha256": "<artifact digest>",
@@ -375,6 +390,9 @@ The `filter` value is the exact JSON sent to the GDC `/files` endpoint, so this
 file is enough to re-pull the same cohort (idempotent up to GDC data releases).
 For shared selections, `case_set` identifies the reusable JSON artifact and
 records its digest so downstream cohorts can prove they used the same case set.
+The `recipes` block records the effective recipe options. File-backed locus
+panels are read once before processing; their values are folded into `options`,
+while `inputs` records the resolved source, digest, and number of file values.
 
 ---
 

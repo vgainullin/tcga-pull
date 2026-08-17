@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from tcga_pull.config import (
     from_flags,
     load_yaml,
     read_projects_file,
+    resolve_recipe_options,
 )
 
 
@@ -27,6 +29,41 @@ def test_allowed_values_combines_inline_and_file_entries(tmp_path: Path):
     )
 
     assert values == {"TP53", "PIK3CA", "ENSG00000141510"}
+
+
+def test_resolve_recipe_options_snapshots_file_panels(tmp_path: Path):
+    values_path = tmp_path / "genes.txt"
+    content = "# panel\nTP53\nENSG00000141510\n"
+    values_path.write_text(content)
+
+    resolved, provenance = resolve_recipe_options(
+        {
+            "variants": {"genes": ["PIK3CA"], "genes_file": str(values_path)},
+            "rna_expression": {"columns": ["gene_id", "unstranded"]},
+        }
+    )
+
+    assert resolved == {
+        "variants": {"genes": ["ENSG00000141510", "PIK3CA", "TP53"]},
+        "rna_expression": {"columns": ["gene_id", "unstranded"]},
+    }
+    assert provenance["options"] == resolved
+    assert provenance["inputs"]["variants"]["genes_file"] == {
+        "source": str(values_path.resolve()),
+        "sha256": hashlib.sha256(content.encode()).hexdigest(),
+        "n_values": 2,
+    }
+
+    values_path.write_text("BRCA1\n")
+    assert allowed_values(resolved["variants"], "genes", "genes_file") == {
+        "ENSG00000141510",
+        "PIK3CA",
+        "TP53",
+    }
+
+
+def test_allowed_values_accepts_scalar_inline_value():
+    assert allowed_values({"genes": "TP53"}, "genes", "genes_file") == {"TP53"}
 
 
 def _find_leaf(flt: dict, field: str) -> dict | None:

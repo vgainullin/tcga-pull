@@ -10,7 +10,7 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
-from .config import CohortSpec, LimitSpec
+from .config import CohortSpec, LimitSpec, resolve_recipe_options
 from .download import (
     bulk_download_via_api,
     primary_case,
@@ -187,6 +187,8 @@ def run(
     """
     console = console or Console()
     client = client or GDCClient()
+    recipe_options, recipe_provenance = resolve_recipe_options(spec.recipe_options)
+    recipe_provenance["requested"] = list(spec.recipes)
 
     with console.status("[cyan]Querying GDC…[/cyan]"):
         preview = fetch_preview(spec, client=client)
@@ -197,7 +199,14 @@ def run(
         return spec.cohort_dir
 
     if spec.processing.mode == "incremental":
-        return _run_incremental(spec, preview=preview, console=console, client=client)
+        return _run_incremental(
+            spec,
+            preview=preview,
+            console=console,
+            client=client,
+            recipe_options=recipe_options,
+            recipe_provenance=recipe_provenance,
+        )
 
     cohort_dir = spec.cohort_dir
     cohort_dir.mkdir(parents=True, exist_ok=True)
@@ -240,6 +249,8 @@ def run(
     }
     if spec.case_set_provenance is not None:
         provenance["case_set"] = spec.case_set_provenance
+    if spec.recipes:
+        provenance["recipes"] = recipe_provenance
     prov_path = write_provenance(cohort_dir, provenance)
 
     # cleanup gdc-client's working dir (per-file logs etc.)
@@ -259,7 +270,7 @@ def run(
         if recipe is None:  # already validated in CohortSpec.__post_init__
             continue
         console.print(f"\n[cyan]==> recipe: {recipe_name}[/cyan]")
-        recipe(cohort_dir, spec.recipe_options)
+        recipe(cohort_dir, recipe_options)
 
     return cohort_dir
 
@@ -270,6 +281,8 @@ def _run_incremental(
     preview: Preview,
     console: Console,
     client: GDCClient,
+    recipe_options: dict[str, Any],
+    recipe_provenance: dict[str, Any],
 ) -> Path:
     """Batch-oriented pull for large cohorts.
 
@@ -320,7 +333,7 @@ def _run_incremental(
                 batch_records,
                 part_id=bi,
                 recipes=batch_recipes,
-                recipe_options=spec.recipe_options,
+                recipe_options=recipe_options,
             )
             if spec.processing.delete_raw_after_processing:
                 _delete_batch_raw(batch_records, recipes=batch_recipes)
@@ -344,6 +357,8 @@ def _run_incremental(
     }
     if spec.case_set_provenance is not None:
         provenance["case_set"] = spec.case_set_provenance
+    if spec.recipes:
+        provenance["recipes"] = recipe_provenance
     prov_path = write_provenance(cohort_dir, provenance)
 
     import shutil
@@ -361,7 +376,7 @@ def _run_incremental(
         finalize_multiomics_parts(
             cohort_dir,
             recipes=batch_recipes,
-            recipe_options=spec.recipe_options,
+            recipe_options=recipe_options,
         )
 
     for recipe_name in spec.recipes:
@@ -371,7 +386,7 @@ def _run_incremental(
         if recipe is None:
             continue
         console.print(f"\n[cyan]==> recipe: {recipe_name}[/cyan]")
-        recipe(cohort_dir, spec.recipe_options)
+        recipe(cohort_dir, recipe_options)
 
     return cohort_dir
 

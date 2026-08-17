@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -286,3 +287,33 @@ def test_write_variants_recipe_passes_recipe_options(tmp_path: Path, monkeypatch
     assert result.path == out
     assert result.engine == "pandas"
     assert captured == {"cohort_dir": tmp_path, "recipe_options": options}
+    provenance = json.loads((tmp_path / "cohort.json").read_text())
+    assert provenance["recipes"] == {"options": options, "inputs": {}}
+
+
+def test_write_variants_recipe_replaces_stale_panel_provenance(tmp_path: Path, monkeypatch):
+    from tcga_pull import services
+
+    out = tmp_path / "variants.parquet"
+    (tmp_path / "cohort.json").write_text(
+        json.dumps(
+            {
+                "name": "cohort",
+                "recipes": {
+                    "options": {
+                        "variants": {"genes": ["OLD"]},
+                        "rna_expression": {"genes": ["TP53"]},
+                    },
+                    "inputs": {"variants": {"genes_file": {"sha256": "old"}}},
+                },
+            }
+        )
+    )
+
+    monkeypatch.setattr(services, "resolve_variants_writer", lambda engine: lambda *args: out)
+    write_variants_recipe(tmp_path, recipe_options={})
+
+    provenance = json.loads((tmp_path / "cohort.json").read_text())
+    assert provenance["name"] == "cohort"
+    assert provenance["recipes"]["options"] == {"rna_expression": {"genes": ["TP53"]}}
+    assert provenance["recipes"]["inputs"] == {}

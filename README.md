@@ -132,6 +132,8 @@ Ensembl IDs. Variant allowlists match `Hugo_Symbol`. These options reduce rows
 during processing; GDC still transfers complete per-sample source files.
 `variant_summary.parquet` retains unfiltered per-case aliquot structure and
 burden, so `samples.parquet` keeps its canonical whole-cohort semantics.
+File-backed panels are resolved once before processing. Their effective sorted
+values, resolved source path, and SHA-256 digest are recorded in `cohort.json`.
 
 The same mode can be enabled from flags for ad hoc pulls:
 

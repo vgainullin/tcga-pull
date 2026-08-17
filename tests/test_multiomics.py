@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -518,9 +519,13 @@ def test_incremental_pipeline_processes_and_deletes_handled_raw(tmp_path: Path, 
                 "gene_id\tgene_name\tgene_type\tunstranded\n"
                 "ENSG00000141510.18\tTP53\tprotein_coding\t42\n"
             )
+        # The pipeline must use the panel snapshot resolved before downloading.
+        panel_path.write_text("BRCA1\n")
 
     monkeypatch.setattr("tcga_pull.pipeline.bulk_download_via_api", fake_bulk)
 
+    panel_path = tmp_path / "rna_genes.txt"
+    panel_path.write_text("TP53\n")
     spec = CohortSpec(
         name="incremental",
         out_dir=tmp_path,
@@ -531,6 +536,7 @@ def test_incremental_pipeline_processes_and_deletes_handled_raw(tmp_path: Path, 
             batch_size=1,
             delete_raw_after_processing=True,
         ),
+        recipe_options={"rna_expression": {"genes_file": str(panel_path)}},
     )
     import io
 
@@ -547,6 +553,12 @@ def test_incremental_pipeline_processes_and_deletes_handled_raw(tmp_path: Path, 
     rna = pl.read_parquet(cohort / "rna_expression.parquet")
     assert rna.height == 1
     assert rna.row(0, named=True)["gene_name"] == "TP53"
+    provenance = json.loads((cohort / "cohort.json").read_text())
+    assert provenance["recipes"]["requested"] == ["multiomics"]
+    assert provenance["recipes"]["options"]["rna_expression"] == {"genes": ["TP53"]}
+    panel_input = provenance["recipes"]["inputs"]["rna_expression"]["genes_file"]
+    assert panel_input["source"] == str(panel_path.resolve())
+    assert len(panel_input["sha256"]) == 64
 
 
 def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, monkeypatch):
@@ -593,12 +605,19 @@ def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, mon
 
     monkeypatch.setattr("tcga_pull.pipeline.bulk_download_via_api", fake_bulk)
 
+    panel_path = tmp_path / "rna_genes.txt"
+    panel_path.write_text("TP53\n")
     spec = CohortSpec(
         name="standard_options",
         out_dir=tmp_path,
         filters={"project": "TCGA-CHOL"},
         recipes=["rna_expression"],
-        recipe_options={"rna_expression": {"columns": ["gene_id", "gene_name", "unstranded"]}},
+        recipe_options={
+            "rna_expression": {
+                "columns": ["gene_id", "gene_name", "unstranded"],
+                "genes_file": str(panel_path),
+            }
+        },
     )
     import io
 
@@ -623,3 +642,9 @@ def test_standard_pipeline_applies_multiomics_recipe_options(tmp_path: Path, mon
         "gene_name",
         "unstranded",
     ]
+    provenance = json.loads((tmp_path / "standard_options" / "cohort.json").read_text())
+    assert provenance["recipes"]["requested"] == ["rna_expression"]
+    assert provenance["recipes"]["options"]["rna_expression"] == {
+        "columns": ["gene_id", "gene_name", "unstranded"],
+        "genes": ["TP53"],
+    }
