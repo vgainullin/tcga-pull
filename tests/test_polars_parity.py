@@ -289,6 +289,20 @@ def test_variant_gene_allowlist_preserves_full_cohort_primary_aliquot(tmp_path: 
     assert polars["primary_aliquot"].to_list() == [False]
 
 
+def test_variant_gene_allowlist_zero_hits_keeps_samples_pipeline_valid(tmp_path: Path):
+    cohort = _build_fixture_cohort(tmp_path)
+
+    variants_path = variants_polars.write_variants(cohort, {"variants": {"genes": ["NOT_PRESENT"]}})
+    samples_path = samples_polars.write_samples(cohort)
+
+    assert pl.read_parquet(variants_path).is_empty()
+    samples = pl.read_parquet(samples_path)
+    assert samples.height == 2
+    assert samples["n_variants_total"].to_list() == [0, 0]
+    assert samples["n_variants_coding"].to_list() == [0, 0]
+    assert samples["n_variants_high_impact"].to_list() == [0, 0]
+
+
 def test_samples_parity(tmp_path: Path):
     cohort = _build_fixture_cohort(tmp_path)
 

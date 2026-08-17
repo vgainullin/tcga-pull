@@ -18,12 +18,12 @@ def _per_case_pair_structure(variants: pl.DataFrame) -> pl.DataFrame:
     total distinct tumor aliquots."""
     if variants.is_empty():
         return pl.DataFrame(
-            {
-                "submitter_id": [],
-                "primary_tumor_barcode": [],
-                "primary_normal_barcode": [],
-                "normal_source": [],
-                "n_tumor_aliquots": [],
+            schema={
+                "submitter_id": pl.Utf8,
+                "primary_tumor_barcode": pl.Utf8,
+                "primary_normal_barcode": pl.Utf8,
+                "normal_source": pl.Utf8,
+                "n_tumor_aliquots": pl.Int64,
             }
         )
 
@@ -53,11 +53,11 @@ def _per_case_burden(variants: pl.DataFrame) -> pl.DataFrame:
     """Mutation burden on the primary aliquot only. One row per submitter_id."""
     if variants.is_empty():
         return pl.DataFrame(
-            {
-                "submitter_id": [],
-                "n_variants_total": [],
-                "n_variants_coding": [],
-                "n_variants_high_impact": [],
+            schema={
+                "submitter_id": pl.Utf8,
+                "n_variants_total": pl.Int64,
+                "n_variants_coding": pl.Int64,
+                "n_variants_high_impact": pl.Int64,
             }
         )
     return (
