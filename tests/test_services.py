@@ -21,6 +21,7 @@ from tcga_pull.services import (
     select_optional_omics,
     write_manifest_for_spec,
     write_manifest_from_preview,
+    write_variants_recipe,
 )
 
 
@@ -264,3 +265,24 @@ def test_engine_resolvers_reject_unknown_engine():
         resolve_variants_writer("nope")
     with pytest.raises(ValueError, match="unknown engine"):
         resolve_samples_writer("nope")
+
+
+def test_write_variants_recipe_passes_recipe_options(tmp_path: Path, monkeypatch):
+    from tcga_pull import services
+
+    captured: dict[str, object] = {}
+    out = tmp_path / "variants.parquet"
+
+    def fake_writer(cohort_dir: Path, recipe_options: dict | None = None) -> Path:
+        captured["cohort_dir"] = cohort_dir
+        captured["recipe_options"] = recipe_options
+        return out
+
+    monkeypatch.setattr(services, "resolve_variants_writer", lambda engine: fake_writer)
+    options = {"variants": {"genes": ["TP53"]}}
+
+    result = write_variants_recipe(tmp_path, engine="pandas", recipe_options=options)
+
+    assert result.path == out
+    assert result.engine == "pandas"
+    assert captured == {"cohort_dir": tmp_path, "recipe_options": options}

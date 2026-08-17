@@ -10,7 +10,12 @@ from pathlib import Path
 
 import polars as pl
 
-from .samples import CLINICAL_COLUMN_MAP, OUTPUT_COLUMN_ORDER, _project_to_program
+from .samples import (
+    CLINICAL_COLUMN_MAP,
+    OUTPUT_COLUMN_ORDER,
+    VARIANT_SUMMARY_FILE,
+    _project_to_program,
+)
 
 
 def _per_case_pair_structure(variants: pl.DataFrame) -> pl.DataFrame:
@@ -71,9 +76,19 @@ def _per_case_burden(variants: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def build_variant_summary(variants: pl.DataFrame) -> pl.DataFrame:
+    """Canonical per-case aliquot structure and burden from unfiltered variants."""
+    return (
+        _per_case_pair_structure(variants)
+        .join(_per_case_burden(variants), on="submitter_id", how="full", coalesce=True)
+        .sort("submitter_id")
+    )
+
+
 def build_samples_from_frames(
     clinical: pl.DataFrame,
     variants: pl.DataFrame,
+    variant_summary: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Pure transformation: clinical + variants → samples table."""
     keep_in = [c for c in CLINICAL_COLUMN_MAP if c in clinical.columns]
@@ -110,11 +125,8 @@ def build_samples_from_frames(
         oncotree_tissue=pl.Series([n.tissue if n else None for n in onco_nodes], dtype=pl.Utf8),
     )
 
-    pair_structure = _per_case_pair_structure(variants)
-    burden = _per_case_burden(variants)
-    samples = clin.join(pair_structure, on="submitter_id", how="left").join(
-        burden, on="submitter_id", how="left"
-    )
+    summary = variant_summary if variant_summary is not None else build_variant_summary(variants)
+    samples = clin.join(summary, on="submitter_id", how="left")
 
     # Fill burden zeros for cases without matched variants
     for col in ("n_variants_total", "n_variants_coding", "n_variants_high_impact"):
@@ -130,13 +142,15 @@ def write_samples(cohort_dir: Path) -> Path:
     cohort_dir = Path(cohort_dir)
     clin_path = cohort_dir / "clinical.parquet"
     variants_path = cohort_dir / "variants.parquet"
+    summary_path = cohort_dir / VARIANT_SUMMARY_FILE
     if not clin_path.exists():
         raise FileNotFoundError(f"missing {clin_path}")
     if not variants_path.exists():
         raise FileNotFoundError(f"missing {variants_path}")
     clinical = pl.read_parquet(clin_path)
     variants = pl.read_parquet(variants_path)
-    samples = build_samples_from_frames(clinical, variants)
+    variant_summary = pl.read_parquet(summary_path) if summary_path.exists() else None
+    samples = build_samples_from_frames(clinical, variants, variant_summary)
     out = cohort_dir / "samples.parquet"
     samples.write_parquet(out)
     return out

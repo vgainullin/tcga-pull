@@ -49,6 +49,7 @@ Output goes to `./cohorts/brca_snv/`:
 clinical.parquet            manifest.parquet            cohort.json
 clinical_raw.jsonl          manifest.tsv                data/<patient>/<data_category>/<file>
 variants.parquet            samples.parquet
+variant_summary.parquet
 gene_frequency.parquet      variant_frequency.parquet
 ```
 
@@ -129,6 +130,8 @@ recipe_options:
 RNA gene allowlists match gene symbols, versioned Ensembl IDs, or unversioned
 Ensembl IDs. Variant allowlists match `Hugo_Symbol`. These options reduce rows
 during processing; GDC still transfers complete per-sample source files.
+`variant_summary.parquet` retains unfiltered per-case aliquot structure and
+burden, so `samples.parquet` keeps its canonical whole-cohort semantics.
 
 The same mode can be enabled from flags for ad hoc pulls:
 
@@ -147,6 +150,13 @@ with:
 
 ```sh
 tcga-pull multiomics ./cohorts/pancancer_multiomics
+```
+
+Apply a variant panel to an existing download with the same cohort config:
+
+```sh
+tcga-pull variants ./cohorts/pancancer_multiomics --config cohort.yaml
+tcga-pull samples ./cohorts/pancancer_multiomics
 ```
 
 To export case-aligned matrices for model training:
@@ -176,6 +186,7 @@ cohort = load_cohort("./cohorts/brca_snv")
 cohort.clinical
 cohort.manifest
 cohort.variants
+cohort.variant_summary
 cohort.samples
 cohort.gene_frequency
 cohort.rna_expression
@@ -191,7 +202,7 @@ schemas in [SCHEMAS.md](SCHEMAS.md).
 
 | recipe | output | rows |
 |---|---|---|
-| `variants` | `variants.parquet` | one per (variant × tumor aliquot) |
+| `variants` | `variants.parquet`, `variant_summary.parquet` | filtered variant rows plus unfiltered per-case summary |
 | `samples` | `samples.parquet` | one per case (clinical + tissue + burden) |
 | `frequency` | `gene_frequency.parquet`, `variant_frequency.parquet` | per (gene or variant, tissue) |
 | `rna_expression` | `rna_expression.parquet` | one per (sample file × gene) |

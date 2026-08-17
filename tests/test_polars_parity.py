@@ -224,16 +224,23 @@ def test_variants_parity(tmp_path: Path):
     # Pandas pipeline
     pd_path = variants_pandas.write_variants(cohort)
     pd_path = pd_path.rename(pd_path.with_suffix(".pandas.parquet"))
+    pd_summary = (cohort / "variant_summary.parquet").rename(
+        cohort / "variant_summary.pandas.parquet"
+    )
 
     # Polars pipeline (overwrites variants.parquet)
     pl_out = variants_polars.write_variants(cohort)
     pl_path = pl_out.rename(pl_out.with_suffix(".polars.parquet"))
+    pl_summary = (cohort / "variant_summary.parquet").rename(
+        cohort / "variant_summary.polars.parquet"
+    )
 
     _assert_frames_match(
         pd_path,
         pl_path,
         sort_cols=["submitter_id", "tumor_barcode", "chrom", "pos"],
     )
+    _assert_frames_match(pd_summary, pl_summary, sort_cols=["submitter_id"])
 
 
 def test_variant_gene_allowlist_matches_between_engines(tmp_path: Path):
@@ -296,11 +303,16 @@ def test_variant_gene_allowlist_zero_hits_keeps_samples_pipeline_valid(tmp_path:
     samples_path = samples_polars.write_samples(cohort)
 
     assert pl.read_parquet(variants_path).is_empty()
+    summary = pl.read_parquet(cohort / "variant_summary.parquet")
+    assert summary["n_variants_total"].to_list() == [3, 1]
     samples = pl.read_parquet(samples_path)
     assert samples.height == 2
-    assert samples["n_variants_total"].to_list() == [0, 0]
-    assert samples["n_variants_coding"].to_list() == [0, 0]
-    assert samples["n_variants_high_impact"].to_list() == [0, 0]
+    assert samples["n_variants_total"].to_list() == [3, 1]
+    assert samples["n_tumor_aliquots"].to_list() == [1, 2]
+    assert samples["primary_tumor_barcode"].to_list() == [
+        "TCGA-AA-AAAA-01A-11D-0000-09",
+        "TCGA-BB-BBBB-01B-04D-0000-09",
+    ]
 
 
 def test_samples_parity(tmp_path: Path):

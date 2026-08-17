@@ -350,9 +350,14 @@ def resolve_samples_writer(engine: str):
     raise ValueError(f"unknown engine: {engine!r} (use 'polars' or 'pandas')")
 
 
-def write_variants_recipe(cohort_dir: Path, *, engine: str = "polars") -> RecipeOutput:
+def write_variants_recipe(
+    cohort_dir: Path,
+    *,
+    engine: str = "polars",
+    recipe_options: dict[str, Any] | None = None,
+) -> RecipeOutput:
     writer = resolve_variants_writer(engine)
-    return RecipeOutput(path=writer(cohort_dir), engine=engine)
+    return RecipeOutput(path=writer(cohort_dir, recipe_options), engine=engine)
 
 
 def write_samples_recipe(cohort_dir: Path, *, engine: str = "polars") -> RecipeOutput:

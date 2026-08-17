@@ -13,6 +13,7 @@ cohort/
   manifest.tsv               # the manifest sent to gdc-client (provenance)
   samples.parquet            # one row per case, with derived tissue + burden
   variants.parquet           # one row per (variant × tumor aliquot)
+  variant_summary.parquet    # one row per case with unfiltered variant summary
   gene_frequency.parquet     # optional: one row per (gene × tissue)
   variant_frequency.parquet  # optional: one row per (variant × tissue)
   rna_expression.parquet     # optional: one row per (sample file × gene)
@@ -152,7 +153,25 @@ mutation burden (counted on primary aliquot only):
 
 Burden columns count the **primary tumor aliquot only**, so a case with three
 sequenced aliquots is still one row with one burden total. Use `n_variants_coding`
-as the canonical "TMB-like" count.
+as the canonical "TMB-like" count. These values come from
+`variant_summary.parquet`, so a gene allowlist on `variants.parquet` does not
+change canonical aliquot metadata or whole-cohort burden.
+
+---
+
+## `variant_summary.parquet`
+
+One row per case represented in the unfiltered MAF input. This compact artifact
+is written with `variants.parquet` before any gene allowlist is applied and is
+the variant-derived input to `samples.parquet`. It keeps older cohorts backward
+compatible while preventing locus filters from changing canonical sample data.
+
+```
+submitter_id,
+primary_tumor_barcode, primary_normal_barcode, normal_source,
+n_tumor_aliquots,
+n_variants_total, n_variants_coding, n_variants_high_impact
+```
 
 ---
 
